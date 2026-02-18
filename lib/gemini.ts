@@ -12,7 +12,7 @@ function getApiKey(): string {
 export async function generateContent(
   prompt: string,
   systemInstruction?: string,
-  modelName: string = 'gemini-2.0-flash-exp',
+  modelName: string = 'gemini-2.0-flash',
   enableGrounding: boolean = false
 ): Promise<any> {
   const GEMINI_API_KEY = getApiKey();
@@ -39,6 +39,7 @@ export async function generateContent(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'x-goog-api-client': 'genai-js/0.21.0',
     },
     body: JSON.stringify(body)
   });
@@ -57,7 +58,7 @@ export async function generateContent(
 export async function generateJSON<T = any>(
   prompt: string,
   systemInstruction?: string,
-  modelName: string = 'gemini-2.0-flash-exp',
+  modelName: string = 'gemini-2.0-flash',
   enableGrounding: boolean = false
 ): Promise<{ data: T; tokensIn: number; tokensOut: number }> {
   const GEMINI_API_KEY = getApiKey();
@@ -87,6 +88,7 @@ export async function generateJSON<T = any>(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'x-goog-api-client': 'genai-js/0.21.0',
     },
     body: JSON.stringify(body)
   });

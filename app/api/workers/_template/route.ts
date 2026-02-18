@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     const { data, tokensIn, tokensOut } = await generateJSON(
       prompt,
       systemInstruction,
-      'gemini-2.0-flash-exp',
+      'gemini-2.0-flash',
       true // Enable Google Search grounding
     );
 
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
     // Log the run
     await logWorkerRun({
       job_id,
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-2.0-flash',
       tokens_in: tokensIn,
       tokens_out: tokensOut,
       duration_ms: Date.now() - startTime,
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
     
     await logWorkerRun({
       job_id: body.job_id,
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-2.0-flash',
       duration_ms: Date.now() - startTime,
     });
 
