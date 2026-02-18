@@ -763,7 +763,34 @@ export default function ProjectDetailPage() {
         {/* KB Builder content */}
         {activeStep === 'kb' && (
           <section>
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Knowledge Base Files</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Knowledge Base Files</h2>
+              {kbArtifacts.length > 0 && (
+                <button
+                  onClick={async () => {
+                    const JSZip = (await import('jszip')).default;
+                    const zip = new JSZip();
+                    const folder = zip.folder(`${project.client_name}-kb`) ?? zip;
+                    kbArtifacts.forEach((a) => {
+                      const filename = `${a.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`;
+                      folder.file(filename, a.content ?? '');
+                    });
+                    const blob = await zip.generateAsync({ type: 'blob' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `${project.client_name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-knowledge-base.zip`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-700 text-white text-sm font-semibold rounded-lg hover:bg-purple-800"
+                >
+                  ↓ Download All ({kbArtifacts.length} files)
+                </button>
+              )}
+            </div>
             {kbArtifacts.length > 0 ? (
               <div className="space-y-3">
                 {kbArtifacts.map((artifact) => (
@@ -773,7 +800,25 @@ export default function ProjectDetailPage() {
                         <h3 className="font-semibold text-gray-900">{artifact.title}</h3>
                         <p className="text-sm text-gray-500">{new Date(artifact.created_at).toLocaleString()}</p>
                       </div>
-                      <span className="text-xs bg-gray-100 px-2 py-1 rounded">MD</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs bg-gray-100 px-2 py-1 rounded">MD</span>
+                        <button
+                          onClick={() => {
+                            const blob = new Blob([artifact.content ?? ''], { type: 'text/markdown' });
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.href = url;
+                            link.download = `${artifact.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            URL.revokeObjectURL(url);
+                          }}
+                          className="text-xs text-purple-600 hover:underline px-2 py-1 border border-purple-200 rounded hover:bg-purple-50"
+                        >
+                          ↓
+                        </button>
+                      </div>
                     </div>
                     {artifact.content && (
                       <details className="mt-3">
