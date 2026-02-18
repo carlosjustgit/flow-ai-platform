@@ -1,8 +1,8 @@
-import Ajv from 'ajv';
+import Ajv2020 from 'ajv/dist/2020';
 import { readFile } from 'fs/promises';
 import { resolve } from 'path';
 
-const ajv = new Ajv({ allErrors: true });
+const ajv = new Ajv2020({ allErrors: true });
 
 /**
  * Validate data against a JSON schema
