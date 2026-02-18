@@ -490,20 +490,29 @@ export default function ProjectDetailPage() {
 
       if (jobError) throw jobError;
 
-      // Call worker
+      // Call worker — some agents (research, presentation) take 60-120s
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_id: projectId, input_artifact_id: inputArtifact.id, job_id: (job as any).id }),
+        signal: AbortSignal.timeout(290_000), // 4m 50s — just under Vercel's 5m limit
       });
 
-      const result = await res.json();
+      let result: any;
+      try {
+        result = await res.json();
+      } catch {
+        throw new Error('Agent is still running or timed out. Refresh the page in a moment to check if it completed.');
+      }
       if (!res.ok) throw new Error(result.error || 'Agent failed');
 
       setAgentStatus({ message: `${AGENT_LABELS[agentType] || agentType} completed successfully.`, type: 'success' });
       await loadData();
     } catch (err: any) {
-      setAgentStatus({ message: `Error: ${err.message}`, type: 'error' });
+      const msg = err.name === 'TimeoutError'
+        ? 'The agent is taking longer than expected. Refresh in a moment — it may still complete in the background.'
+        : `Error: ${err.message}`;
+      setAgentStatus({ message: msg, type: 'error' });
     } finally {
       setRunningAgent(null);
     }
@@ -665,7 +674,7 @@ export default function ProjectDetailPage() {
                   disabled={runningAgent !== null || !hasResearch}
                   className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
-                  {runningAgent === 'presentation' ? 'Building...' : 'Run Presentation Agent'}
+                  {runningAgent === 'presentation' ? 'Building… (60-90s)' : 'Run Presentation Agent'}
                 </button>
               )}
             </div>

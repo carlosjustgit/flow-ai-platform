@@ -4,6 +4,9 @@ import { logWorkerRun } from '@/lib/logging';
 import { getArtifact, updateJobStatus } from '@/lib/orchestrator';
 import { generateResearchPack } from '@/lib/gemini';
 
+// Research uses Google Search grounding — needs extended timeout
+export const maxDuration = 300;
+
 /**
  * POST /api/workers/research
  *

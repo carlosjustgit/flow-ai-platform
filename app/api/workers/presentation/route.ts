@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
+
+// Vercel max function duration — Presentation Agent needs Gemini + pptxgenjs render time
+export const maxDuration = 300;
 import { logWorkerRun } from '@/lib/logging';
 import { getArtifact, updateJobStatus } from '@/lib/orchestrator';
 import { generatePresentationPack } from '@/lib/gemini';

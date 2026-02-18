@@ -3,6 +3,9 @@ import { readFile } from 'fs/promises';
 import { resolve } from 'path';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createServiceClient } from '@/lib/supabase';
+
+// KB generation can take 30-60s with large research packs
+export const maxDuration = 300;
 import { logWorkerRun } from '@/lib/logging';
 import { validateKBFiles, KBFile } from '@/lib/validation';
 import { getArtifact, updateJobStatus, createApprovalsForArtifacts } from '@/lib/orchestrator';
