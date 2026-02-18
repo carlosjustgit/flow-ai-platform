@@ -385,16 +385,27 @@ const PRESENTATION_RESPONSE_SCHEMA: Schema = {
   required: ['client_name', 'deck_title', 'slides'],
 };
 
+/** Safely coerce any value to an array — handles strings or unexpected types from Gemini. */
+function safeArr(val: unknown): any[] {
+  if (Array.isArray(val)) return val;
+  return [];
+}
+
 /** Extract only the fields that matter for slide generation — keeps the prompt concise. */
 function compressResearchPack(pack: ResearchFoundationPackJson): Record<string, unknown> {
   const p = pack as any;
+  // competitor_landscape may be the object wrapper OR directly an array depending on schema version
+  const rawCompetitors = Array.isArray(p.competitor_landscape)
+    ? p.competitor_landscape
+    : safeArr(p.competitor_landscape?.competitors);
+
   return {
     client_name: p.client_name,
     executive_summary: p.executive_summary,
     swot: p.swot,
     lean_canvas: p.lean_canvas,
     market_insights: p.market_insights,
-    competitor_landscape: (p.competitor_landscape ?? []).map((c: any) => ({
+    competitor_landscape: rawCompetitors.map((c: any) => ({
       name: c.name,
       positioning: c.positioning,
       strengths: c.strengths,
