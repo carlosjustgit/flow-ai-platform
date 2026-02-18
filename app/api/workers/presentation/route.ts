@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
 
     await logWorkerRun({
       job_id,
-      model: 'gemini-2.0-flash',
+      model: 'gemini-3-flash-preview',
       tokens_in: result.tokensIn,
       tokens_out: result.tokensOut,
       duration_ms: durationMs,
@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
       try {
         await logWorkerRun({
           job_id,
-          model: 'gemini-2.0-flash',
+          model: 'gemini-3-flash-preview',
           duration_ms: Date.now() - startTime,
         });
         await updateJobStatus(

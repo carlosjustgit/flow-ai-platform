@@ -445,7 +445,7 @@ Produce a complete 13-slide client presentation following the mandatory slide or
 
   const response = await Promise.race([
     ai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-3-flash-preview',
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
         systemInstruction: PRESENTATION_SYSTEM_INSTRUCTION,
