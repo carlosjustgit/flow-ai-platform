@@ -433,7 +433,25 @@ ${JSON.stringify(compressedPack, null, 2)}
 Knowledge Base Summary:
 ${kbSummary}
 
-Produce exactly 8 slides following the mandatory slide order in your instructions.`;
+Produce exactly 8 slides following the mandatory slide order in your instructions.
+
+Return ONLY a JSON object in this exact shape — no extra text:
+{
+  "client_name": string,
+  "deck_title": string,
+  "slides": [
+    {
+      "slide_number": number,
+      "slide_title": string,
+      "slide_type": "cover"|"section"|"content"|"quote"|"cta"|"list",
+      "headline": string,
+      "body_text": string,
+      "bullet_points": string[],
+      "speaker_notes": string,
+      "layout_hint": string
+    }
+  ]
+}`;
 
   // 240-second safety net — just under Vercel's 300s max
   const timeoutPromise = new Promise<never>((_, reject) =>
@@ -449,8 +467,9 @@ Produce exactly 8 slides following the mandatory slide order in your instruction
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
         systemInstruction: PRESENTATION_SYSTEM_INSTRUCTION,
+        // No responseSchema — constrained decoding for 64 fields is too slow.
+        // We ask for JSON via the prompt and parse it ourselves.
         responseMimeType: 'application/json',
-        responseSchema: PRESENTATION_RESPONSE_SCHEMA,
         temperature: 0.4,
       },
     }),
@@ -460,7 +479,9 @@ Produce exactly 8 slides following the mandatory slide order in your instruction
   const text = response.text;
   if (!text) throw new Error('No response generated from Gemini.');
 
-  const parsed = JSON.parse(text) as Omit<PresentationResponse, 'tokensIn' | 'tokensOut'>;
+  // Strip any accidental markdown fences the model might add
+  const cleaned = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+  const parsed = JSON.parse(cleaned) as Omit<PresentationResponse, 'tokensIn' | 'tokensOut'>;
   const tokensIn = (response as any).usageMetadata?.promptTokenCount ?? 0;
   const tokensOut = (response as any).usageMetadata?.candidatesTokenCount ?? 0;
 
