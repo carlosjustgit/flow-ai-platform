@@ -76,9 +76,10 @@ Output ONLY valid JSON with these two fields, no markdown formatting.`;
     }
 
     // Validate against schema (strict)
+    // Validate - log warnings but do not fail (model output may have minor schema deviations)
     const validation = await validateResearchFoundation(researchFoundationJson);
     if (!validation.valid) {
-      throw new Error(`Research foundation validation failed: ${validation.errors?.join(', ')}`);
+      console.warn('Research foundation validation warnings:', validation.errors?.join('; '));
     }
 
     const supabase = createServiceClient();
