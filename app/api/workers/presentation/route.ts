@@ -63,11 +63,16 @@ export async function POST(request: NextRequest) {
       .filter((a) => a.content)
       .map((a) => ({ title: a.title, content: a.content }));
 
-    // Generate slide content via Gemini (with 150s timeout guard)
+    // Generate slide content via Gemini
     const result = await generatePresentationPack(researchPack, kbFiles, clientName);
 
-    // Render PPTX file
-    const pptxBuffer = await renderPptxFromSlides(result.slides, result.deck_title, clientName);
+    // Render PPTX — pass raw research pack so renderer can insert SWOT + Lean Canvas slides
+    const pptxBuffer = await renderPptxFromSlides(
+      result.slides,
+      result.deck_title,
+      clientName,
+      { swot: researchPack.swot, lean_canvas: researchPack.lean_canvas }
+    );
 
     // Upload PPTX to Supabase Storage
     const filename = `${project_id}/presentation-${Date.now()}.pptx`;

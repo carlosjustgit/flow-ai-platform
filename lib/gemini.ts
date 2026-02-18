@@ -311,24 +311,32 @@ export async function generateResearchPack(onboardingData: string): Promise<Rese
 
 const PRESENTATION_SYSTEM_INSTRUCTION = `
 You are the Senior Creative Strategist for Flow Productions.
-Your job: write the slide copy for an 8-slide client-facing strategy deck.
-You receive a research foundation pack. Use it to write compelling, specific, evidence-backed copy.
 
-Rules
-- Produce EXACTLY 8 slides in the order below.
-- Every slide: a punchy title, a bold one-line headline, 3-4 bullet points (full sentences), brief speaker notes (1-2 sentences for the presenter).
-- Tone: confident, direct, client-centric. No agency jargon. No fluff.
-- Make it specific to THIS client — reference their business, their competitors, their market.
+Your job: write the SLIDE COPY for an 8-slide client-facing strategy deck using the research data provided.
+
+CRITICAL RULES — failing these will result in rejected work:
+- NEVER write generic statements. Every bullet must reference a specific fact, name, number, or insight from the research.
+- Name competitors by name. Name ICP segments by name. Quote market sizes or trends.
+- If the research mentions a specific percentage, growth rate, platform, tool, or quote — USE IT.
+- Write as if you've spent a week studying this client. The client should read this and think "these people really get us."
+- Tone: confident, direct, client-centric. No agency jargon. No filler sentences.
+
+OUTPUT: EXACTLY 8 slides. Each slide must have:
+- slide_number (1 to 8)
+- slide_title (short, 3-6 words)
+- headline (one punchy sentence — the BIG IDEA of the slide)
+- bullet_points (3-5 items — specific, factual, full sentences)
+- speaker_notes (2-3 sentences guiding the presenter on what to emphasise)
 
 Slide Order (mandatory)
-1. Cover — inspiring deck title + one-line client positioning statement
-2. What We Heard From You — 3-4 key onboarding findings, what they told us
-3. The Market Opportunity — size, timing, tailwinds specific to their sector
-4. Your Competitive Landscape — 3 competitors, where this client wins
-5. Who You're Really Talking To — ICP: who they are, what they care about, what triggers them
-6. Your Strategic Positioning — our recommendation for how they should position
-7. Content & Channel Strategy — the 3 content pillars and where to publish them
-8. Next Steps — 3 concrete actions, each with a clear owner
+1. Cover — Deck title + the single most powerful insight about this client's opportunity
+2. What We Heard From You — Their exact pain points, goals, and current situation (from the onboarding data)
+3. The Market Opportunity — Specific market size, growth trend, timing window for this sector
+4. Your Competitive Landscape — Name 3 competitors, their weaknesses, where this client wins
+5. Who You're Really Talking To — Specific ICP: demographics, psychographics, buying triggers
+6. Your Strategic Positioning — Our recommended positioning statement and why it wins
+7. Content & Channel Strategy — The 3 content pillars and the specific platforms to dominate
+8. Next Steps — 3 concrete actions with clear owners and a timeline
 `;
 
 // Simplified slide — only what Gemini writes. Visual layout is handled by pptxgenjs templates.
@@ -391,21 +399,24 @@ export async function generatePresentationPack(
 
   const ai = new GoogleGenAI({ apiKey });
 
-  // Compress KB files to first 1000 chars each to avoid massive context
+  // Send top KB files (2500 chars each) — enough context without blowing up tokens
   const kbSummary = kbFiles
-    .map((f) => `### ${f.title}\n${f.content.slice(0, 1000)}`)
+    .slice(0, 8)
+    .map((f) => `### ${f.title}\n${f.content.slice(0, 2500)}`)
     .join('\n\n---\n\n');
 
-  // Only send the fields relevant to slide writing, not the full pack with all sources
+  // Send the compressed research pack — has all key structured data
   const compressedPack = compressResearchPack(researchPack);
 
   const prompt = `Client Name: ${clientName}
 
-Research Foundation Pack:
+=== RESEARCH FOUNDATION PACK ===
 ${JSON.stringify(compressedPack, null, 2)}
 
-Knowledge Base Summary:
+=== KNOWLEDGE BASE EXCERPTS ===
 ${kbSummary}
+
+Note: A separate SWOT Matrix slide and Lean Canvas slide will be added automatically from the structured data — do NOT include SWOT or Lean Canvas content in your 8 slides. Focus on narrative, strategy, and action.
 
 Write the slide copy for exactly 8 slides following the mandatory slide order.
 
