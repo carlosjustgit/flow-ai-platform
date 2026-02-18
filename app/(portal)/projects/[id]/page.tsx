@@ -419,6 +419,7 @@ export default function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [runningAgent, setRunningAgent] = useState<string | null>(null);
   const [agentStatus, setAgentStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [activeStep, setActiveStep] = useState<'onboarding' | 'research' | 'kb' | 'presentation'>('research');
 
   const loadData = useCallback(async () => {
     try {
@@ -525,6 +526,15 @@ export default function ProjectDetailPage() {
   const presentationArtifact = findArtifact('presentation');
   const hasPresentation = !!presentationArtifact;
 
+  // Auto-select the furthest completed step (only on first load)
+  useEffect(() => {
+    if (loading) return;
+    if (hasPresentation) setActiveStep('presentation');
+    else if (hasKb) setActiveStep('kb');
+    else if (hasResearch) setActiveStep('research');
+    else setActiveStep('onboarding');
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Nav */}
@@ -549,11 +559,19 @@ export default function ProjectDetailPage() {
 
         {/* Agent Pipeline */}
         <section>
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Agent Pipeline</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-1">Agent Pipeline</h2>
+          <p className="text-xs text-gray-400 mb-4">Click any step to view its output below.</p>
           <div className="flex flex-wrap gap-3 items-center">
 
             {/* Step 1 - Onboarding */}
-            <div className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 ${onboardingArtifact ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white'}`}>
+            <div
+              onClick={() => setActiveStep('onboarding')}
+              className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                activeStep === 'onboarding'
+                  ? 'border-purple-600 bg-purple-50 shadow-md ring-2 ring-purple-200'
+                  : onboardingArtifact ? 'border-green-400 bg-green-50 hover:shadow' : 'border-gray-200 bg-white hover:shadow'
+              }`}
+            >
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xl">{onboardingArtifact ? '✅' : '⏳'}</span>
                 <h3 className="font-semibold text-sm">1. Onboarding</h3>
@@ -564,7 +582,14 @@ export default function ProjectDetailPage() {
             <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
 
             {/* Step 2 - Research Agent */}
-            <div className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 ${hasResearch ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white'}`}>
+            <div
+              onClick={() => setActiveStep('research')}
+              className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                activeStep === 'research'
+                  ? 'border-purple-600 bg-purple-50 shadow-md ring-2 ring-purple-200'
+                  : hasResearch ? 'border-green-400 bg-green-50 hover:shadow' : 'border-gray-200 bg-white hover:shadow'
+              }`}
+            >
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xl">{hasResearch ? '✅' : '🔬'}</span>
                 <h3 className="font-semibold text-sm">2. Research Agent</h3>
@@ -572,7 +597,7 @@ export default function ProjectDetailPage() {
               <p className="text-xs text-gray-500 mb-3">{hasResearch ? 'Research complete' : 'Uses onboarding report'}</p>
               {!hasResearch && (
                 <button
-                  onClick={() => runAgent('research')}
+                  onClick={(e) => { e.stopPropagation(); runAgent('research'); }}
                   disabled={runningAgent !== null || !onboardingArtifact}
                   className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
@@ -584,7 +609,14 @@ export default function ProjectDetailPage() {
             <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
 
             {/* Step 3 - KB Builder */}
-            <div className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 ${hasKb ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white'}`}>
+            <div
+              onClick={() => setActiveStep('kb')}
+              className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                activeStep === 'kb'
+                  ? 'border-purple-600 bg-purple-50 shadow-md ring-2 ring-purple-200'
+                  : hasKb ? 'border-green-400 bg-green-50 hover:shadow' : 'border-gray-200 bg-white hover:shadow'
+              }`}
+            >
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xl">{hasKb ? '✅' : '📚'}</span>
                 <h3 className="font-semibold text-sm">3. KB Builder</h3>
@@ -592,7 +624,7 @@ export default function ProjectDetailPage() {
               <p className="text-xs text-gray-500 mb-3">{hasKb ? `${kbArtifacts.length} files ready` : 'Uses research pack'}</p>
               {!hasKb && (
                 <button
-                  onClick={() => runAgent('kb_packager')}
+                  onClick={(e) => { e.stopPropagation(); runAgent('kb_packager'); }}
                   disabled={runningAgent !== null || !hasResearch}
                   className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
@@ -604,7 +636,14 @@ export default function ProjectDetailPage() {
             <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
 
             {/* Step 4 - Presentation Agent */}
-            <div className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 ${hasPresentation ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white'}`}>
+            <div
+              onClick={() => setActiveStep('presentation')}
+              className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                activeStep === 'presentation'
+                  ? 'border-purple-600 bg-purple-50 shadow-md ring-2 ring-purple-200'
+                  : hasPresentation ? 'border-green-400 bg-green-50 hover:shadow' : 'border-gray-200 bg-white hover:shadow'
+              }`}
+            >
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xl">{hasPresentation ? '✅' : '🎨'}</span>
                 <h3 className="font-semibold text-sm">4. Presentation</h3>
@@ -615,13 +654,14 @@ export default function ProjectDetailPage() {
                   href={(presentationArtifact as any)?.file_url ?? '#'}
                   target="_blank"
                   rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
                   className="block w-full px-3 py-1.5 bg-green-700 text-white text-xs rounded hover:bg-green-800 text-center"
                 >
                   Download PPTX
                 </a>
               ) : (
                 <button
-                  onClick={() => runAgent('presentation')}
+                  onClick={(e) => { e.stopPropagation(); runAgent('presentation'); }}
                   disabled={runningAgent !== null || !hasResearch}
                   className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
@@ -632,8 +672,29 @@ export default function ProjectDetailPage() {
           </div>
         </section>
 
-        {/* Research Viewer - the full AI Studio UI */}
-        {hasResearch && researchJsonArtifact?.content_json && (
+        {/* Step content — shows only what the user selected */}
+
+        {/* Onboarding content */}
+        {activeStep === 'onboarding' && (
+          <section>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Onboarding Report</h2>
+            {onboardingArtifact ? (
+              <div className="bg-white rounded-xl shadow border border-gray-200 p-6">
+                <p className="text-sm font-semibold text-gray-700 mb-3">{onboardingArtifact.title}</p>
+                <pre className="font-mono text-xs text-gray-800 whitespace-pre-wrap break-words bg-gray-50 p-4 rounded border border-gray-200 overflow-auto max-h-[600px]">
+                  {onboardingArtifact.content_json
+                    ? JSON.stringify(onboardingArtifact.content_json, null, 2)
+                    : onboardingArtifact.content}
+                </pre>
+              </div>
+            ) : (
+              <p className="text-gray-500 text-sm">No onboarding report yet. Complete the onboarding survey first.</p>
+            )}
+          </section>
+        )}
+
+        {/* Research Viewer */}
+        {activeStep === 'research' && hasResearch && researchJsonArtifact?.content_json && (
           <section>
             <h2 className="text-xl font-bold text-gray-900 mb-4">Research Foundation Pack</h2>
             <ResearchViewer
@@ -642,9 +703,44 @@ export default function ProjectDetailPage() {
             />
           </section>
         )}
+        {activeStep === 'research' && !hasResearch && (
+          <section>
+            <p className="text-gray-500 text-sm">No research output yet. Run the Research Agent to generate it.</p>
+          </section>
+        )}
+
+        {/* KB Builder content */}
+        {activeStep === 'kb' && (
+          <section>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Knowledge Base Files</h2>
+            {kbArtifacts.length > 0 ? (
+              <div className="space-y-3">
+                {kbArtifacts.map((artifact) => (
+                  <div key={artifact.id} className="bg-white p-4 rounded-lg shadow-sm border">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <h3 className="font-semibold text-gray-900">{artifact.title}</h3>
+                        <p className="text-sm text-gray-500">{new Date(artifact.created_at).toLocaleString()}</p>
+                      </div>
+                      <span className="text-xs bg-gray-100 px-2 py-1 rounded">MD</span>
+                    </div>
+                    {artifact.content && (
+                      <details className="mt-3">
+                        <summary className="text-sm text-purple-600 cursor-pointer hover:underline">View content</summary>
+                        <pre className="mt-2 p-3 bg-gray-50 rounded text-xs overflow-auto max-h-72 whitespace-pre-wrap">{artifact.content}</pre>
+                      </details>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-sm">No KB files yet. Run KB Builder after the Research Agent completes.</p>
+            )}
+          </section>
+        )}
 
         {/* Presentation download section */}
-        {hasPresentation && (
+        {activeStep === 'presentation' && hasPresentation && (
           <section>
             <h2 className="text-xl font-bold text-gray-900 mb-4">Client Presentation</h2>
             <div className="bg-white rounded-xl shadow border border-gray-200 p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -669,31 +765,9 @@ export default function ProjectDetailPage() {
           </section>
         )}
 
-        {/* Other artifacts (KB files, etc.) */}
-        {artifacts.filter(a => !['research_foundation_pack_json', 'research_foundation_pack_md', 'presentation', 'presentation_content_json'].includes(a.type)).length > 0 && (
+        {activeStep === 'presentation' && !hasPresentation && (
           <section>
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Other Artifacts</h2>
-            <div className="space-y-3">
-              {artifacts
-                .filter(a => !['research_foundation_pack_json', 'research_foundation_pack_md', 'presentation', 'presentation_content_json'].includes(a.type))
-                .map((artifact) => (
-                  <div key={artifact.id} className="bg-white p-4 rounded-lg shadow-sm border">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <h3 className="font-semibold text-gray-900">{artifact.title}</h3>
-                        <p className="text-sm text-gray-500">{artifact.type} · {artifact.format.toUpperCase()} · {new Date(artifact.created_at).toLocaleString()}</p>
-                      </div>
-                      <span className="text-xs bg-gray-100 px-2 py-1 rounded">{artifact.format.toUpperCase()}</span>
-                    </div>
-                    {artifact.content && (
-                      <details className="mt-3">
-                        <summary className="text-sm text-purple-600 cursor-pointer hover:underline">View content</summary>
-                        <pre className="mt-2 p-3 bg-gray-50 rounded text-xs overflow-auto max-h-72 whitespace-pre-wrap">{artifact.content}</pre>
-                      </details>
-                    )}
-                  </div>
-                ))}
-            </div>
+            <p className="text-gray-500 text-sm">No presentation yet. Run the Presentation Agent after Research and KB Builder complete.</p>
           </section>
         )}
 
