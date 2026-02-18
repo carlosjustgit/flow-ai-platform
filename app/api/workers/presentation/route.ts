@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
-
-// Vercel max function duration — Presentation Agent needs Gemini + pptxgenjs render time
-export const maxDuration = 300;
 import { logWorkerRun } from '@/lib/logging';
 import { getArtifact, updateJobStatus } from '@/lib/orchestrator';
 import { generatePresentationPack } from '@/lib/gemini';
 import { renderPptxFromSlides } from '@/lib/pptx';
+
+// Must appear at module scope AFTER imports for Next.js static analysis
+export const maxDuration = 300;
 
 /**
  * POST /api/workers/presentation
@@ -19,10 +19,12 @@ import { renderPptxFromSlides } from '@/lib/pptx';
  */
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
+  let job_id: string | undefined;
 
   try {
     const body = await request.json();
-    const { project_id, input_artifact_id, job_id } = body;
+    const { project_id, input_artifact_id, job_id: jobId } = body;
+    job_id = jobId; // hoist so catch block can reference it
 
     if (!project_id || !input_artifact_id || !job_id) {
       return NextResponse.json(
@@ -61,7 +63,7 @@ export async function POST(request: NextRequest) {
       .filter((a) => a.content)
       .map((a) => ({ title: a.title, content: a.content }));
 
-    // Generate slide content via Gemini
+    // Generate slide content via Gemini (with 150s timeout guard)
     const result = await generatePresentationPack(researchPack, kbFiles, clientName);
 
     // Render PPTX file
@@ -121,7 +123,7 @@ export async function POST(request: NextRequest) {
 
     await logWorkerRun({
       job_id,
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-2.0-flash',
       tokens_in: result.tokensIn,
       tokens_out: result.tokensOut,
       duration_ms: durationMs,
@@ -142,22 +144,22 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[presentation-worker] error:', error);
 
-    try {
-      const errorBody = await request.clone().json();
-      if (errorBody.job_id) {
+    // Use job_id captured before the error, no need to re-parse the request body
+    if (job_id) {
+      try {
         await logWorkerRun({
-          job_id: errorBody.job_id,
-          model: 'gemini-3-flash-preview',
+          job_id,
+          model: 'gemini-2.0-flash',
           duration_ms: Date.now() - startTime,
         });
         await updateJobStatus(
-          errorBody.job_id,
+          job_id,
           'failed',
           error instanceof Error ? error.message : 'Unknown error'
         );
+      } catch {
+        // best-effort
       }
-    } catch {
-      // best-effort
     }
 
     return NextResponse.json(

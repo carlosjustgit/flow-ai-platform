@@ -385,6 +385,28 @@ const PRESENTATION_RESPONSE_SCHEMA: Schema = {
   required: ['client_name', 'deck_title', 'slides'],
 };
 
+/** Extract only the fields that matter for slide generation — keeps the prompt concise. */
+function compressResearchPack(pack: ResearchFoundationPackJson): Record<string, unknown> {
+  const p = pack as any;
+  return {
+    client_name: p.client_name,
+    executive_summary: p.executive_summary,
+    swot: p.swot,
+    lean_canvas: p.lean_canvas,
+    market_insights: p.market_insights,
+    competitor_landscape: (p.competitor_landscape ?? []).map((c: any) => ({
+      name: c.name,
+      positioning: c.positioning,
+      strengths: c.strengths,
+      weaknesses: c.weaknesses,
+    })),
+    campaign_foundations: p.campaign_foundations,
+    ideal_customer_profile: p.ideal_customer_profile,
+    risks: p.risks,
+    sources_needed: p.sources_needed,
+  };
+}
+
 export async function generatePresentationPack(
   researchPack: ResearchFoundationPackJson,
   kbFiles: Array<{ title: string; content: string }>,
@@ -395,32 +417,45 @@ export async function generatePresentationPack(
 
   const ai = new GoogleGenAI({ apiKey });
 
+  // Compress KB files to first 1000 chars each to avoid massive context
   const kbSummary = kbFiles
-    .map((f) => `### ${f.title}\n${f.content}`)
+    .map((f) => `### ${f.title}\n${f.content.slice(0, 1000)}`)
     .join('\n\n---\n\n');
 
-  const prompt = `
-Client Name: ${clientName}
+  // Only send the fields relevant to slide writing, not the full pack with all sources
+  const compressedPack = compressResearchPack(researchPack);
 
-Research Foundation Pack:
-${JSON.stringify(researchPack, null, 2)}
+  const prompt = `Client Name: ${clientName}
 
-Knowledge Base Files:
+Research Foundation Pack (key fields):
+${JSON.stringify(compressedPack, null, 2)}
+
+Knowledge Base Summary:
 ${kbSummary}
 
-Based on all of the above, produce a complete 13-slide client presentation following the mandatory slide order in your instructions.
-`;
+Produce a complete 13-slide client presentation following the mandatory slide order in your instructions.`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    config: {
-      systemInstruction: PRESENTATION_SYSTEM_INSTRUCTION,
-      responseMimeType: 'application/json',
-      responseSchema: PRESENTATION_RESPONSE_SCHEMA,
-      temperature: 0.4,
-    },
-  });
+  // 150-second safety net — if Gemini hangs, surface a clear error instead of timing out silently
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error('Gemini presentation call timed out after 150s. Try again — the model may be under load.')),
+      150_000
+    )
+  );
+
+  const response = await Promise.race([
+    ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: {
+        systemInstruction: PRESENTATION_SYSTEM_INSTRUCTION,
+        responseMimeType: 'application/json',
+        responseSchema: PRESENTATION_RESPONSE_SCHEMA,
+        temperature: 0.4,
+      },
+    }),
+    timeoutPromise,
+  ]);
 
   const text = response.text;
   if (!text) throw new Error('No response generated from Gemini.');
