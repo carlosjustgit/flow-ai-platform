@@ -59,7 +59,7 @@ Generate EXACTLY two fields in your JSON response:
 Output ONLY valid JSON with these two fields, no markdown formatting.`;
 
     // Call Gemini with JSON output mode and Google Search grounding enabled
-    const model = 'gemini-2.0-flash';
+    const model = 'gemini-3-flash-preview';
     const { data: responseData, tokensIn, tokensOut } = await generateJSON(
       fullPrompt,
       systemInstruction,
@@ -153,7 +153,7 @@ Output ONLY valid JSON with these two fields, no markdown formatting.`;
         const durationMs = Date.now() - startTime;
         await logWorkerRun({
           job_id: errorBody.job_id,
-          model: 'gemini-2.0-flash',
+          model: 'gemini-3-flash-preview',
           duration_ms: durationMs,
         });
         await updateJobStatus(

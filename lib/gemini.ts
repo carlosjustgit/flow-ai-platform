@@ -12,7 +12,7 @@ function getApiKey(): string {
 export async function generateContent(
   prompt: string,
   systemInstruction?: string,
-  modelName: string = 'gemini-2.0-flash',
+  modelName: string = 'gemini-3-flash-preview',
   enableGrounding: boolean = false
 ): Promise<any> {
   const GEMINI_API_KEY = getApiKey();
@@ -58,7 +58,7 @@ export async function generateContent(
 export async function generateJSON<T = any>(
   prompt: string,
   systemInstruction?: string,
-  modelName: string = 'gemini-2.0-flash',
+  modelName: string = 'gemini-3-flash-preview',
   enableGrounding: boolean = false
 ): Promise<{ data: T; tokensIn: number; tokensOut: number }> {
   const GEMINI_API_KEY = getApiKey();

@@ -57,7 +57,7 @@ Minimum files required:
 Output ONLY a valid JSON array, no markdown formatting.`;
 
     // Call Gemini with JSON output mode
-    const model = 'gemini-2.0-flash';
+    const model = 'gemini-3-flash-preview';
     const { data: kbFiles, tokensIn, tokensOut } = await generateJSON<KBFile[]>(
       fullPrompt,
       'You are a knowledge base specialist. Create clear, concise knowledge base files from the strategy pack.',
@@ -134,7 +134,7 @@ Output ONLY a valid JSON array, no markdown formatting.`;
         const durationMs = Date.now() - startTime;
         await logWorkerRun({
           job_id: errorBody.job_id,
-          model: 'gemini-2.0-flash',
+          model: 'gemini-3-flash-preview',
           duration_ms: durationMs,
         });
         await updateJobStatus(
