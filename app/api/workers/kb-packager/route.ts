@@ -1,19 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
 import { resolve } from 'path';
+import { GoogleGenAI, Type } from '@google/genai';
 import { createServiceClient } from '@/lib/supabase';
 import { logWorkerRun } from '@/lib/logging';
 import { validateKBFiles, KBFile } from '@/lib/validation';
 import { getArtifact, updateJobStatus, createApprovalsForArtifacts } from '@/lib/orchestrator';
-import { generateJSON } from '@/lib/gemini';
+
+const KB_PACKAGER_SCHEMA = {
+  type: Type.ARRAY,
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      filename: { type: Type.STRING },
+      title: { type: Type.STRING },
+      format: { type: Type.STRING },
+      content: { type: Type.STRING },
+    },
+    required: ['filename', 'title', 'format', 'content'],
+  },
+};
 
 /**
  * POST /api/workers/kb-packager
- * Process strategy pack and generate knowledge base files
+ * Process research foundation pack and generate knowledge base files
  */
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
-  
+
   try {
     const body = await request.json();
     const { project_id, input_artifact_id, job_id } = body;
@@ -25,26 +39,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Load input artifact (strategy pack)
-    const inputArtifact = await getArtifact(input_artifact_id);
-    const strategyPack = (inputArtifact as any).content_json || JSON.parse((inputArtifact as any).content || '{}');
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error('GEMINI_API_KEY environment variable is required');
 
-    if (!strategyPack || Object.keys(strategyPack).length === 0) {
-      throw new Error('Strategy pack content is empty');
+    // Load input artifact (research foundation pack)
+    const inputArtifact = await getArtifact(input_artifact_id);
+    const researchPack = (inputArtifact as any).content_json || JSON.parse((inputArtifact as any).content || '{}');
+
+    if (!researchPack || Object.keys(researchPack).length === 0) {
+      throw new Error('Research foundation pack content is empty');
     }
 
-    // Load kb-packager prompt
+    // Load prompt
     const promptPath = resolve(process.cwd(), 'prompts/kb-packager.md');
     const promptTemplate = await readFile(promptPath, 'utf-8');
 
-    // Prepare prompt with strategy pack
     const fullPrompt = `${promptTemplate}
 
-Strategy Pack JSON:
-${JSON.stringify(strategyPack, null, 2)}
+Research Foundation Pack:
+${JSON.stringify(researchPack, null, 2)}
 
-Generate an array of knowledge base files. Each file should have: filename, title, format, content.
-Minimum files required:
+Generate the following knowledge base files:
 - 01-company-overview.md
 - 02-icp-and-segments.md
 - 03-offer-and-positioning.md
@@ -52,19 +67,30 @@ Minimum files required:
 - 05-content-pillars.md
 - 06-competitors.md
 - 07-faq-and-objections.md
-- 08-visual-brand-guidelines.md
+- 08-visual-brand-guidelines.md`;
 
-Output ONLY a valid JSON array, no markdown formatting.`;
-
-    // Call Gemini with JSON output mode
     const model = 'gemini-3-flash-preview';
-    const { data: kbFiles, tokensIn, tokensOut } = await generateJSON<KBFile[]>(
-      fullPrompt,
-      'You are a knowledge base specialist. Create clear, concise knowledge base files from the strategy pack.',
-      model
-    );
+    const ai = new GoogleGenAI({ apiKey });
 
-    // Validate against schema
+    const response = await ai.models.generateContent({
+      model,
+      contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+      config: {
+        systemInstruction: 'You are a knowledge base specialist. Create clear, concise knowledge base markdown files from the research foundation pack. Return a JSON array of file objects.',
+        responseMimeType: 'application/json',
+        responseSchema: KB_PACKAGER_SCHEMA,
+        temperature: 0.2,
+      },
+    });
+
+    const text = response.text;
+    if (!text) throw new Error('No response generated from Gemini.');
+
+    const kbFiles: KBFile[] = JSON.parse(text);
+    const tokensIn = (response as any).usageMetadata?.promptTokenCount ?? 0;
+    const tokensOut = (response as any).usageMetadata?.candidatesTokenCount ?? 0;
+
+    // Validate
     const validation = await validateKBFiles(kbFiles);
     if (!validation.valid) {
       throw new Error(`KB files validation failed: ${validation.errors?.join(', ')}`);
@@ -73,7 +99,6 @@ Output ONLY a valid JSON array, no markdown formatting.`;
     const supabase = createServiceClient();
     const artifactIds: string[] = [];
 
-    // Store each KB file as a separate artifact
     for (const file of kbFiles) {
       const { data: artifact, error } = await supabase
         .from('artifacts')
@@ -82,69 +107,36 @@ Output ONLY a valid JSON array, no markdown formatting.`;
           type: 'kb_file',
           format: file.format,
           title: file.title,
-          content: file.content
+          content: file.content,
         } as any)
         .select()
         .single();
 
-      if (error) {
-        throw new Error(`Failed to store KB file ${file.filename}: ${error.message}`);
-      }
-
+      if (error) throw new Error(`Failed to store KB file ${file.filename}: ${error.message}`);
       artifactIds.push((artifact as any).id);
     }
 
-    // Calculate duration
     const durationMs = Date.now() - startTime;
-    const cost = (tokensIn * 0.000001 + tokensOut * 0.000002).toFixed(6);
 
-    // Log run
-    await logWorkerRun({
-      job_id,
-      model,
-      tokens_in: tokensIn,
-      tokens_out: tokensOut,
-      duration_ms: durationMs,
-    });
-
-    // Update job status to needs_approval
+    await logWorkerRun({ job_id, model, tokens_in: tokensIn, tokens_out: tokensOut, duration_ms: durationMs });
     await updateJobStatus(job_id, 'needs_approval', null, artifactIds[0]);
-
-    // Create approval records for all KB artifacts
     await createApprovalsForArtifacts(project_id, artifactIds);
 
-    return NextResponse.json(
-      {
-        artifacts: kbFiles.map((file, index) => ({
-          id: artifactIds[index],
-          filename: file.filename,
-          title: file.title
-        })),
-        run_id: job_id
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({
+      artifacts: kbFiles.map((file, index) => ({ id: artifactIds[index], filename: file.filename, title: file.title })),
+      run_id: job_id,
+    });
   } catch (error) {
     console.error('Error in POST /api/workers/kb-packager:', error);
 
-    // Log failed run if we have job_id
     try {
       const errorBody = await request.clone().json();
       if (errorBody.job_id) {
-        const durationMs = Date.now() - startTime;
-        await logWorkerRun({
-          job_id: errorBody.job_id,
-          model: 'gemini-3-flash-preview',
-          duration_ms: durationMs,
-        });
-        await updateJobStatus(
-          errorBody.job_id,
-          'failed',
-          error instanceof Error ? error.message : 'Unknown error'
-        );
+        await logWorkerRun({ job_id: errorBody.job_id, model: 'gemini-3-flash-preview', duration_ms: Date.now() - startTime });
+        await updateJobStatus(errorBody.job_id, 'failed', error instanceof Error ? error.message : 'Unknown error');
       }
-    } catch (logError) {
-      console.error('Failed to log error:', logError);
+    } catch {
+      // best-effort
     }
 
     return NextResponse.json(

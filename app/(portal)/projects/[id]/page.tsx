@@ -4,6 +4,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabase';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
+import type { ResearchFoundationPackJson } from '@/lib/gemini';
+
+// ─── Types ─────────────────────────────────────────────────────────────────
 
 interface Artifact {
   id: string;
@@ -25,11 +28,358 @@ interface Job {
   created_at: string;
 }
 
-const AGENT_LABELS: Record<string, string> = {
-  research: 'Research Agent',
-  kb_packager: 'KB Builder Agent',
-  presentation: 'Presentation Agent',
-};
+// ─── Research Viewer (ported from AI Studio OutputSection.tsx) ──────────────
+
+type ResearchTab = 'overview' | 'swot' | 'lean' | 'competitors' | 'strategy' | 'raw';
+
+function ResearchViewer({ pack, markdown }: { pack: ResearchFoundationPackJson; markdown: string }) {
+  const [tab, setTab] = useState<ResearchTab>('overview');
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    const text = tab === 'raw' ? JSON.stringify(pack, null, 2) : markdown;
+    await navigator.clipboard.writeText(text).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownload = () => {
+    const blob = new Blob([JSON.stringify(pack, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'research-foundation-pack.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const tabs: { id: ResearchTab; label: string }[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'swot', label: 'SWOT Analysis' },
+    { id: 'lean', label: 'Lean Canvas' },
+    { id: 'competitors', label: 'Competitors' },
+    { id: 'strategy', label: 'Strategy & Campaign' },
+    { id: 'raw', label: 'Raw Data' },
+  ];
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+        <h3 className="font-bold text-lg text-gray-900">Research Findings</h3>
+        <div className="flex gap-2">
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
+          >
+            {copied ? '✓ Copied' : 'Copy'}
+          </button>
+          <button
+            onClick={handleDownload}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 rounded hover:bg-black"
+          >
+            Download JSON
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex overflow-x-auto border-b border-gray-200 bg-white px-2">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${
+              tab === t.id
+                ? 'border-purple-600 text-purple-600 bg-purple-50'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div className="p-6 bg-gray-50 min-h-[500px] overflow-y-auto">
+
+        {/* OVERVIEW */}
+        {tab === 'overview' && (
+          <div className="max-w-4xl mx-auto space-y-8">
+            <div className="bg-white p-8 rounded-lg border border-gray-200 shadow-sm">
+              <h2 className="text-2xl font-bold text-purple-700 mb-6">Executive Summary</h2>
+              <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-line">{markdown}</div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                <h3 className="font-bold text-gray-900 mb-4">Target Audience Pains</h3>
+                <ul className="space-y-2">
+                  {pack.market_and_audience_insights?.customer_pains?.map((pain, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                      <span className="text-red-500 mt-0.5 flex-shrink-0">•</span>{pain}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                <h3 className="font-bold text-gray-900 mb-4">Key Opportunities</h3>
+                <ul className="space-y-2">
+                  {pack.swot?.opportunities?.map((opp, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                      <span className="text-green-500 mt-0.5 flex-shrink-0">↗</span>{opp}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SWOT */}
+        {tab === 'swot' && (
+          <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
+            {[
+              { label: 'Strengths', items: pack.swot?.strengths, color: 'border-green-500', icon: '✓', iconColor: 'text-green-600' },
+              { label: 'Weaknesses', items: pack.swot?.weaknesses, color: 'border-orange-400', icon: '!', iconColor: 'text-orange-500' },
+              { label: 'Opportunities', items: pack.swot?.opportunities, color: 'border-blue-500', icon: '↗', iconColor: 'text-blue-600' },
+              { label: 'Threats', items: pack.swot?.threats, color: 'border-red-500', icon: '×', iconColor: 'text-red-600' },
+            ].map(({ label, items, color, icon, iconColor }) => (
+              <div key={label} className={`bg-white p-6 rounded-lg border-t-4 ${color} shadow-sm`}>
+                <h3 className="font-bold text-lg text-gray-900 mb-4 uppercase tracking-wider">{label}</h3>
+                <ul className="space-y-3">
+                  {items?.map((item, i) => (
+                    <li key={i} className="flex gap-3 text-sm text-gray-700">
+                      <span className={`font-bold ${iconColor} flex-shrink-0`}>{icon}</span>{item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* LEAN CANVAS */}
+        {tab === 'lean' && (
+          <div className="max-w-7xl mx-auto overflow-x-auto">
+            <div className="bg-white rounded border border-gray-300 min-w-[900px] grid grid-cols-5 text-sm">
+              {/* Row 1 */}
+              <div className="row-span-2 p-4 border-r border-b border-gray-300">
+                <div className="text-xs font-bold text-gray-400 uppercase mb-2">Problem</div>
+                <p className="whitespace-pre-line text-gray-800">{pack.lean_canvas?.problem}</p>
+              </div>
+              <div className="p-4 border-r border-b border-gray-300">
+                <div className="text-xs font-bold text-gray-400 uppercase mb-2">Solution</div>
+                <p className="whitespace-pre-line text-gray-800">{pack.lean_canvas?.solution}</p>
+              </div>
+              <div className="row-span-2 p-4 border-r border-b border-gray-300 bg-purple-50">
+                <div className="text-xs font-bold text-purple-600 uppercase mb-2">Unique Value Proposition</div>
+                <p className="whitespace-pre-line text-gray-800 font-medium">{pack.lean_canvas?.unique_value_proposition}</p>
+              </div>
+              <div className="p-4 border-r border-b border-gray-300">
+                <div className="text-xs font-bold text-gray-400 uppercase mb-2">Unfair Advantage</div>
+                <p className="whitespace-pre-line text-gray-800">{pack.lean_canvas?.unfair_advantage}</p>
+              </div>
+              <div className="row-span-2 p-4 border-b border-gray-300">
+                <div className="text-xs font-bold text-gray-400 uppercase mb-2">Customer Segments</div>
+                <p className="whitespace-pre-line text-gray-800">{pack.lean_canvas?.customer_segments}</p>
+              </div>
+              {/* Row 2 */}
+              <div className="p-4 border-r border-b border-gray-300">
+                <div className="text-xs font-bold text-gray-400 uppercase mb-2">Key Metrics</div>
+                <p className="whitespace-pre-line text-gray-800">{pack.lean_canvas?.key_metrics}</p>
+              </div>
+              <div className="p-4 border-r border-b border-gray-300">
+                <div className="text-xs font-bold text-gray-400 uppercase mb-2">Channels</div>
+                <p className="whitespace-pre-line text-gray-800">{pack.lean_canvas?.channels}</p>
+              </div>
+              {/* Row 3 - bottom */}
+              <div className="col-span-2 p-4 border-r border-gray-300">
+                <div className="text-xs font-bold text-gray-400 uppercase mb-2">Cost Structure</div>
+                <p className="whitespace-pre-line text-gray-800">{pack.lean_canvas?.cost_structure}</p>
+              </div>
+              <div className="col-span-3 p-4">
+                <div className="text-xs font-bold text-gray-400 uppercase mb-2">Revenue Streams</div>
+                <p className="whitespace-pre-line text-gray-800">{pack.lean_canvas?.revenue_streams}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* COMPETITORS */}
+        {tab === 'competitors' && (
+          <div className="max-w-5xl mx-auto space-y-6">
+            {pack.competitor_landscape?.competitors?.map((comp, idx) => (
+              <div key={idx} className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="text-xl font-bold text-purple-700">{comp.name}</h3>
+                    {comp.website && (
+                      <a href={comp.website} target="_blank" rel="noreferrer" className="text-sm text-gray-500 hover:underline">
+                        {comp.website}
+                      </a>
+                    )}
+                  </div>
+                  <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-xs font-semibold">Competitor</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="space-y-3">
+                    <div>
+                      <div className="text-xs font-bold text-gray-400 uppercase mb-1">Positioning</div>
+                      <p className="text-sm text-gray-800">{comp.positioning_summary}</p>
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-gray-400 uppercase mb-1">Target Customers</div>
+                      <p className="text-sm text-gray-800">{comp.target_customers}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="text-xs font-bold text-gray-400 uppercase mb-1">Offers</div>
+                      <p className="text-sm text-gray-800">{comp.offers}</p>
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-gray-400 uppercase mb-1">Pricing</div>
+                      <p className="text-sm text-gray-600 italic">{comp.pricing_notes}</p>
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-gray-400 uppercase mb-1">Messaging Angles</div>
+                      <p className="text-sm text-gray-800">{comp.messaging_angles}</p>
+                    </div>
+                  </div>
+                  <div className="bg-purple-50 p-4 rounded space-y-3">
+                    <div>
+                      <div className="text-xs font-bold text-purple-600 uppercase mb-1">Flow's Opportunity</div>
+                      <p className="text-sm text-gray-900 font-medium">{comp.differentiation_opportunities}</p>
+                    </div>
+                    {comp.strengths?.length > 0 && (
+                      <div>
+                        <div className="text-xs font-bold text-gray-400 uppercase mb-1">Their Strengths</div>
+                        <ul className="space-y-1">
+                          {comp.strengths.map((s, i) => <li key={i} className="text-xs text-gray-600">+ {s}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {comp.weaknesses?.length > 0 && (
+                      <div>
+                        <div className="text-xs font-bold text-gray-400 uppercase mb-1">Their Weaknesses</div>
+                        <ul className="space-y-1">
+                          {comp.weaknesses.map((w, i) => <li key={i} className="text-xs text-gray-600">- {w}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {pack.competitor_landscape?.category_notes && (
+              <div className="bg-yellow-50 border border-yellow-200 p-4 rounded text-sm text-yellow-900">
+                <strong>Category Insight: </strong>{pack.competitor_landscape.category_notes}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STRATEGY & CAMPAIGN */}
+        {tab === 'strategy' && (
+          <div className="max-w-5xl mx-auto space-y-8">
+            {/* Positioning statement */}
+            <div className="bg-purple-700 text-white p-8 rounded-lg shadow-lg">
+              <div className="text-xs font-semibold text-yellow-300 uppercase tracking-wider mb-3">Strategic Positioning</div>
+              <p className="text-xl md:text-2xl font-serif leading-relaxed">
+                "{pack.campaign_foundations?.positioning_statement}"
+              </p>
+            </div>
+
+            {/* Messaging pillars */}
+            {pack.campaign_foundations?.messaging_pillars?.length > 0 && (
+              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                <h3 className="font-bold text-lg text-gray-900 mb-4">Messaging Pillars</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {pack.campaign_foundations.messaging_pillars.map((p, i) => (
+                    <div key={i} className="p-4 bg-gray-50 rounded border border-gray-200">
+                      <div className="font-semibold text-gray-900 mb-1">{p.pillar}</div>
+                      <div className="text-sm text-gray-600">{p.key_message}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Content themes */}
+              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                <h3 className="font-bold text-lg text-gray-900 mb-4">Content Themes</h3>
+                <div className="flex flex-wrap gap-2">
+                  {pack.campaign_foundations?.content_themes?.map((theme, i) => (
+                    <span key={i} className="px-3 py-1.5 bg-gray-100 text-gray-800 rounded-md text-sm border border-gray-200">
+                      {theme}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Channel strategy */}
+              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                <h3 className="font-bold text-lg text-gray-900 mb-4">Channel Strategy</h3>
+                <ul className="space-y-3">
+                  {Object.entries(pack.campaign_foundations?.suggested_channel_strategy || {}).map(([channel, strategy]) => (
+                    <li key={channel} className="flex gap-3 text-sm border-b pb-2 last:border-0">
+                      <span className="font-semibold text-purple-700 capitalize w-20 flex-shrink-0">{channel}</span>
+                      <span className="text-gray-600">{strategy as string}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            {/* Content series */}
+            {pack.campaign_foundations?.content_series?.length > 0 && (
+              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                <h3 className="font-bold text-lg text-gray-900 mb-4">Content Series</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {pack.campaign_foundations.content_series.map((s, i) => (
+                    <div key={i} className="p-4 bg-gray-50 rounded border border-gray-200">
+                      <div className="font-semibold text-gray-900 mb-1">{s.title}</div>
+                      <div className="text-sm text-gray-600">{s.concept}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 30-day plan */}
+            <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+              <h3 className="font-bold text-lg text-gray-900 mb-4">First 30 Days Action Plan</h3>
+              <div className="space-y-4">
+                {pack.campaign_foundations?.first_30_days_plan?.map((item, i) => (
+                  <div key={i} className="flex gap-4">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-purple-700 text-white flex items-center justify-center font-bold text-sm">
+                      {i + 1}
+                    </div>
+                    <p className="text-gray-700 text-sm mt-1.5">{item}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* RAW DATA */}
+        {tab === 'raw' && (
+          <div className="max-w-5xl mx-auto">
+            <pre className="font-mono text-xs text-gray-800 whitespace-pre-wrap break-words bg-white p-6 rounded border border-gray-200 shadow-inner overflow-auto max-h-[700px]">
+              {JSON.stringify(pack, null, 2)}
+            </pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Agent Pipeline Status ──────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-800',
@@ -39,6 +389,14 @@ const STATUS_COLORS: Record<string, string> = {
   failed: 'bg-red-100 text-red-800',
   needs_approval: 'bg-purple-100 text-purple-800',
 };
+
+const AGENT_LABELS: Record<string, string> = {
+  research: 'Research Agent',
+  kb_packager: 'KB Builder Agent',
+  presentation: 'Presentation Agent',
+};
+
+// ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -51,7 +409,7 @@ export default function ProjectDetailPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [runningAgent, setRunningAgent] = useState<string | null>(null);
-  const [agentStatus, setAgentStatus] = useState<string | null>(null);
+  const [agentStatus, setAgentStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -60,29 +418,20 @@ export default function ProjectDetailPage() {
         supabase.from('artifacts').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
         supabase.from('jobs').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
       ]);
-
       if (projectRes.error) throw projectRes.error;
       setProject(projectRes.data);
       setArtifacts((artifactsRes.data as any) || []);
       setJobs((jobsRes.data as any) || []);
     } catch (err) {
-      console.error('Failed to load project:', err);
+      console.error('Failed to load project data:', err);
     } finally {
       setLoading(false);
     }
   }, [projectId]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
 
-  const findOnboardingArtifact = () => {
-    return artifacts.find(a => a.type === 'onboarding_report_json' || a.type === 'onboarding_report');
-  };
-
-  const findResearchArtifact = () => {
-    return artifacts.find(a => a.type === 'research_foundation_pack_json');
-  };
+  const findArtifact = (type: string) => artifacts.find(a => a.type === type);
 
   const runAgent = async (agentType: string) => {
     setRunningAgent(agentType);
@@ -93,238 +442,216 @@ export default function ProjectDetailPage() {
       let endpoint: string;
 
       if (agentType === 'research') {
-        inputArtifact = findOnboardingArtifact();
+        inputArtifact = findArtifact('onboarding_report_json') ?? findArtifact('onboarding_report');
         if (!inputArtifact) {
-          setAgentStatus('No onboarding report found. Complete onboarding first.');
+          setAgentStatus({ message: 'No onboarding report found. Complete the onboarding survey first.', type: 'error' });
           setRunningAgent(null);
           return;
         }
         endpoint = '/api/workers/research';
       } else if (agentType === 'kb_packager') {
-        inputArtifact = findResearchArtifact();
+        inputArtifact = findArtifact('research_foundation_pack_json');
         if (!inputArtifact) {
-          setAgentStatus('No research pack found. Run the Research Agent first.');
+          setAgentStatus({ message: 'Run the Research Agent first — it produces the input for KB Builder.', type: 'error' });
           setRunningAgent(null);
           return;
         }
         endpoint = '/api/workers/kb-packager';
       } else {
-        setAgentStatus(`Agent type "${agentType}" is not yet implemented.`);
+        setAgentStatus({ message: `Agent "${agentType}" is not yet available.`, type: 'error' });
         setRunningAgent(null);
         return;
       }
 
+      // Create job record
       const { data: job, error: jobError } = await supabase
         .from('jobs')
-        .insert({
-          project_id: projectId,
-          type: agentType,
-          status: 'running',
-          input_artifact_id: inputArtifact.id,
-        } as any)
+        .insert({ project_id: projectId, type: agentType, status: 'running', input_artifact_id: inputArtifact.id } as any)
         .select()
         .single();
 
       if (jobError) throw jobError;
 
-      const response = await fetch(endpoint, {
+      // Call worker
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          project_id: projectId,
-          input_artifact_id: inputArtifact.id,
-          job_id: (job as any).id,
-        }),
+        body: JSON.stringify({ project_id: projectId, input_artifact_id: inputArtifact.id, job_id: (job as any).id }),
       });
 
-      const result = await response.json();
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Agent failed');
 
-      if (!response.ok) {
-        throw new Error(result.error || 'Agent failed');
-      }
-
-      setAgentStatus(`${AGENT_LABELS[agentType] || agentType} completed successfully!`);
+      setAgentStatus({ message: `${AGENT_LABELS[agentType] || agentType} completed successfully.`, type: 'success' });
       await loadData();
     } catch (err: any) {
-      console.error('Error running agent:', err);
-      setAgentStatus(`Error: ${err.message}`);
+      setAgentStatus({ message: `Error: ${err.message}`, type: 'error' });
     } finally {
       setRunningAgent(null);
     }
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-600">Loading project...</p>
-      </div>
-    );
+    return <div className="min-h-screen flex items-center justify-center"><p className="text-gray-500">Loading project...</p></div>;
   }
 
   if (!project) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-red-600">Project not found</p>
-      </div>
-    );
+    return <div className="min-h-screen flex items-center justify-center"><p className="text-red-600">Project not found.</p></div>;
   }
 
-  const onboardingArtifact = findOnboardingArtifact();
-  const researchArtifact = findResearchArtifact();
+  const onboardingArtifact = findArtifact('onboarding_report_json') ?? findArtifact('onboarding_report');
+  const researchJsonArtifact = findArtifact('research_foundation_pack_json');
+  const researchMdArtifact = findArtifact('research_foundation_pack_md');
+  const hasResearch = !!researchJsonArtifact;
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Nav */}
       <nav className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center gap-3">
-              <Link href="/projects" className="text-gray-500 hover:text-gray-700">
-                &larr; Back
-              </Link>
-              <img src="/logo.png" alt="Flow" className="h-8 w-auto" />
-              <h1 className="text-lg font-bold text-gray-900">{project.client_name}</h1>
-            </div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between h-16 items-center">
+          <div className="flex items-center gap-3">
+            <Link href="/projects" className="text-gray-400 hover:text-gray-600 text-sm">&larr; Projects</Link>
+            <img src="/logo.png" alt="Flow" className="h-8 w-auto" />
+            <h1 className="text-lg font-bold text-gray-900">{project.client_name}</h1>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-8">
+
+        {/* Status message */}
         {agentStatus && (
-          <div className={`mb-6 p-4 rounded-md ${agentStatus.startsWith('Error') ? 'bg-red-50 text-red-800' : 'bg-green-50 text-green-800'}`}>
-            {agentStatus}
+          <div className={`p-4 rounded-md text-sm ${agentStatus.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+            {agentStatus.message}
           </div>
         )}
 
         {/* Agent Pipeline */}
-        <div className="mb-8">
+        <section>
           <h2 className="text-xl font-bold text-gray-900 mb-4">Agent Pipeline</h2>
-          <div className="flex flex-wrap gap-4">
-            {/* Step 1: Onboarding */}
-            <div className={`flex-1 min-w-[200px] p-4 rounded-lg border-2 ${onboardingArtifact ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'}`}>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-2xl">{onboardingArtifact ? '✅' : '⏳'}</span>
-                <h3 className="font-semibold">1. Onboarding</h3>
+          <div className="flex flex-wrap gap-3 items-center">
+
+            {/* Step 1 - Onboarding */}
+            <div className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 ${onboardingArtifact ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white'}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xl">{onboardingArtifact ? '✅' : '⏳'}</span>
+                <h3 className="font-semibold text-sm">1. Onboarding</h3>
               </div>
-              <p className="text-sm text-gray-600">
-                {onboardingArtifact ? 'Report received' : 'Waiting for onboarding report'}
-              </p>
+              <p className="text-xs text-gray-500">{onboardingArtifact ? 'Report received' : 'Awaiting onboarding survey'}</p>
             </div>
 
-            <div className="flex items-center text-gray-400 text-2xl">&rarr;</div>
+            <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
 
-            {/* Step 2: Research */}
-            <div className={`flex-1 min-w-[200px] p-4 rounded-lg border-2 ${researchArtifact ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'}`}>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-2xl">{researchArtifact ? '✅' : '🔬'}</span>
-                <h3 className="font-semibold">2. Research Agent</h3>
+            {/* Step 2 - Research Agent */}
+            <div className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 ${hasResearch ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white'}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xl">{hasResearch ? '✅' : '🔬'}</span>
+                <h3 className="font-semibold text-sm">2. Research Agent</h3>
               </div>
-              <p className="text-sm text-gray-600 mb-3">
-                {researchArtifact ? 'Research complete' : 'Needs onboarding report as input'}
-              </p>
-              {!researchArtifact && (
+              <p className="text-xs text-gray-500 mb-3">{hasResearch ? 'Research complete' : 'Uses onboarding report'}</p>
+              {!hasResearch && (
                 <button
                   onClick={() => runAgent('research')}
                   disabled={runningAgent !== null || !onboardingArtifact}
-                  className="w-full px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
                   {runningAgent === 'research' ? 'Running...' : 'Run Research Agent'}
                 </button>
               )}
             </div>
 
-            <div className="flex items-center text-gray-400 text-2xl">&rarr;</div>
+            <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
 
-            {/* Step 3: KB Builder */}
-            <div className="flex-1 min-w-[200px] p-4 rounded-lg border-2 border-gray-200 bg-white">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-2xl">📚</span>
-                <h3 className="font-semibold">3. KB Builder</h3>
+            {/* Step 3 - KB Builder */}
+            <div className="flex-1 min-w-[180px] p-4 rounded-lg border-2 border-gray-200 bg-white">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xl">📚</span>
+                <h3 className="font-semibold text-sm">3. KB Builder</h3>
               </div>
-              <p className="text-sm text-gray-600 mb-3">Needs research pack as input</p>
+              <p className="text-xs text-gray-500 mb-3">Uses research pack</p>
               <button
                 onClick={() => runAgent('kb_packager')}
-                disabled={runningAgent !== null || !researchArtifact}
-                className="w-full px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                disabled={runningAgent !== null || !hasResearch}
+                className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
                 {runningAgent === 'kb_packager' ? 'Running...' : 'Run KB Builder'}
               </button>
             </div>
 
-            <div className="flex items-center text-gray-400 text-2xl">&rarr;</div>
+            <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
 
-            {/* Step 4: Presentation (coming soon) */}
-            <div className="flex-1 min-w-[200px] p-4 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-2xl">🎨</span>
-                <h3 className="font-semibold text-gray-400">4. Presentation</h3>
+            {/* Step 4 - Presentation (future) */}
+            <div className="flex-1 min-w-[180px] p-4 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xl">🎨</span>
+                <h3 className="font-semibold text-sm text-gray-400">4. Presentation</h3>
               </div>
-              <p className="text-sm text-gray-400">Coming soon</p>
+              <p className="text-xs text-gray-400">Coming soon</p>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Artifacts */}
-        <div className="mb-8">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Artifacts ({artifacts.length})</h2>
-          {artifacts.length === 0 ? (
-            <p className="text-gray-500">No artifacts yet.</p>
-          ) : (
+        {/* Research Viewer - the full AI Studio UI */}
+        {hasResearch && researchJsonArtifact?.content_json && (
+          <section>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Research Foundation Pack</h2>
+            <ResearchViewer
+              pack={researchJsonArtifact.content_json as ResearchFoundationPackJson}
+              markdown={researchMdArtifact?.content ?? ''}
+            />
+          </section>
+        )}
+
+        {/* Other artifacts (KB files, etc.) */}
+        {artifacts.filter(a => !['research_foundation_pack_json', 'research_foundation_pack_md'].includes(a.type)).length > 0 && (
+          <section>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Other Artifacts</h2>
             <div className="space-y-3">
-              {artifacts.map((artifact) => (
-                <div key={artifact.id} className="bg-white p-4 rounded-lg shadow-sm border">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{artifact.title}</h3>
-                      <p className="text-sm text-gray-500">
-                        Type: {artifact.type} | Format: {artifact.format} | Created: {new Date(artifact.created_at).toLocaleString()}
-                      </p>
+              {artifacts
+                .filter(a => !['research_foundation_pack_json', 'research_foundation_pack_md'].includes(a.type))
+                .map((artifact) => (
+                  <div key={artifact.id} className="bg-white p-4 rounded-lg shadow-sm border">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <h3 className="font-semibold text-gray-900">{artifact.title}</h3>
+                        <p className="text-sm text-gray-500">{artifact.type} · {artifact.format.toUpperCase()} · {new Date(artifact.created_at).toLocaleString()}</p>
+                      </div>
+                      <span className="text-xs bg-gray-100 px-2 py-1 rounded">{artifact.format.toUpperCase()}</span>
                     </div>
-                    <span className="text-xs bg-gray-100 px-2 py-1 rounded">{artifact.format.toUpperCase()}</span>
+                    {artifact.content && (
+                      <details className="mt-3">
+                        <summary className="text-sm text-purple-600 cursor-pointer hover:underline">View content</summary>
+                        <pre className="mt-2 p-3 bg-gray-50 rounded text-xs overflow-auto max-h-72 whitespace-pre-wrap">{artifact.content}</pre>
+                      </details>
+                    )}
                   </div>
-                  {artifact.content && (
-                    <details className="mt-3">
-                      <summary className="text-sm text-blue-600 cursor-pointer hover:underline">View content</summary>
-                      <pre className="mt-2 p-3 bg-gray-50 rounded text-xs overflow-auto max-h-96">{artifact.content}</pre>
-                    </details>
-                  )}
-                  {artifact.content_json && (
-                    <details className="mt-3">
-                      <summary className="text-sm text-blue-600 cursor-pointer hover:underline">View JSON</summary>
-                      <pre className="mt-2 p-3 bg-gray-50 rounded text-xs overflow-auto max-h-96">{JSON.stringify(artifact.content_json, null, 2)}</pre>
-                    </details>
-                  )}
-                </div>
-              ))}
+                ))}
             </div>
-          )}
-        </div>
+          </section>
+        )}
 
-        {/* Jobs */}
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Jobs ({jobs.length})</h2>
+        {/* Jobs log */}
+        <section>
+          <h2 className="text-xl font-bold text-gray-900 mb-4">Agent Run Log</h2>
           {jobs.length === 0 ? (
-            <p className="text-gray-500">No jobs yet.</p>
+            <p className="text-gray-500 text-sm">No agent runs yet.</p>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {jobs.map((job) => (
-                <div key={job.id} className="bg-white p-4 rounded-lg shadow-sm border">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <span className="font-semibold text-gray-900">{AGENT_LABELS[job.type] || job.type}</span>
-                      <span className={`ml-3 text-xs px-2 py-1 rounded-full ${STATUS_COLORS[job.status] || 'bg-gray-100 text-gray-800'}`}>
-                        {job.status}
-                      </span>
-                    </div>
-                    <span className="text-sm text-gray-500">{new Date(job.created_at).toLocaleString()}</span>
+                <div key={job.id} className="bg-white p-4 rounded-lg shadow-sm border flex justify-between items-center">
+                  <div>
+                    <span className="font-semibold text-gray-900">{AGENT_LABELS[job.type] || job.type}</span>
+                    <span className={`ml-3 text-xs px-2 py-1 rounded-full ${STATUS_COLORS[job.status] || 'bg-gray-100 text-gray-700'}`}>
+                      {job.status}
+                    </span>
+                    {job.error && <p className="text-xs text-red-600 mt-1">Error: {job.error}</p>}
                   </div>
-                  {job.error && (
-                    <p className="mt-2 text-sm text-red-600">Error: {job.error}</p>
-                  )}
+                  <span className="text-sm text-gray-400">{new Date(job.created_at).toLocaleString()}</span>
                 </div>
               ))}
             </div>
           )}
-        </div>
+        </section>
       </div>
     </div>
   );

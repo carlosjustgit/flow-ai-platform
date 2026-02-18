@@ -1,128 +1,304 @@
-function getApiKey(): string {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) {
-    throw new Error('GEMINI_API_KEY environment variable is required');
-  }
-  return key;
-}
+import { GoogleGenAI, Type, Schema } from '@google/genai';
 
-/**
- * Generate content with Gemini using REST API
- */
-export async function generateContent(
-  prompt: string,
-  systemInstruction?: string,
-  modelName: string = 'gemini-3-flash-preview',
-  enableGrounding: boolean = false
-): Promise<any> {
-  const GEMINI_API_KEY = getApiKey();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`;
-  
-  const body: any = {
-    contents: [{
-      parts: [{ text: prompt }]
-    }]
-  };
-  
-  if (systemInstruction) {
-    body.systemInstruction = {
-      parts: [{ text: systemInstruction }]
-    };
-  }
-  
-  // Add Google Search grounding if enabled
-  if (enableGrounding) {
-    body.tools = [{ googleSearch: {} }];
-  }
-  
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-client': 'genai-js/0.21.0',
+// ─── System instruction ────────────────────────────────────────────────────
+// Ported directly from ai-studio-exports/flow-research-agent/services/geminiService.ts
+const RESEARCH_SYSTEM_INSTRUCTION = `
+Role
+You are the Senior Research Director for Flow Productions. Your job is to replace a human research team. You receive a raw client onboarding report and must produce a deep, evidence-based strategic research pack.
+
+Your Goal
+The user will use your output to:
+1. Build a client-facing PowerPoint presentation (PPTX) proving we understand their business.
+2. Formulate the concrete social media strategy for the next 90 days.
+
+Execution Guidelines
+- **Go Deep, Don't Just Summarize**: Do not just reformat the onboarding inputs. Use Google Search to validate claims, find actual competitors, discover pricing, and uncover market trends that the client might not even know about.
+- **Be Critical**: If the client's goals are vague, point it out in "Risks". If their competitor list is weak, find better ones.
+- **Evidence-Based**: Every claim in the "Competitor Landscape" and "Market Insights" sections MUST have a source citation.
+- **Tone**: Professional, insightful, objective, and strategic. No fluff.
+
+Outputs
+Return exactly two artefacts:
+1. research_foundation_pack_json (The structured database of your research)
+2. research_foundation_pack_markdown (A formatted Executive Summary suitable for reading)
+
+Specific Section Instructions:
+- **Competitors**: Analyze 3-5 competitors. If none are provided, FIND THEM. Compare their messaging, visual style, and offer.
+- **SWOT**: Be specific. "Weak social presence" is a valid weakness. "High churn" is a threat.
+- **Lean Canvas**: Fill every box with hypothesis based on your research.
+- **Campaign Foundations**: Propose specific content themes that bridge the client's product with the audience's pain points.
+`;
+
+// ─── Response schema ───────────────────────────────────────────────────────
+// Ported directly from ai-studio-exports/flow-research-agent/services/geminiService.ts
+// This enforces structure natively in the Gemini API - no AJV needed.
+const RESEARCH_RESPONSE_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    research_foundation_pack_json: {
+      type: Type.OBJECT,
+      properties: {
+        sources: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING },
+              title: { type: Type.STRING },
+              url: { type: Type.STRING },
+              publisher: { type: Type.STRING },
+              accessed_at: { type: Type.STRING },
+              notes: { type: Type.STRING },
+            },
+          },
+        },
+        lean_canvas: {
+          type: Type.OBJECT,
+          properties: {
+            problem: { type: Type.STRING },
+            customer_segments: { type: Type.STRING },
+            unique_value_proposition: { type: Type.STRING },
+            solution: { type: Type.STRING },
+            channels: { type: Type.STRING },
+            revenue_streams: { type: Type.STRING },
+            cost_structure: { type: Type.STRING },
+            key_metrics: { type: Type.STRING },
+            unfair_advantage: { type: Type.STRING },
+          },
+        },
+        swot: {
+          type: Type.OBJECT,
+          properties: {
+            strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+            weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
+            opportunities: { type: Type.ARRAY, items: { type: Type.STRING } },
+            threats: { type: Type.ARRAY, items: { type: Type.STRING } },
+          },
+        },
+        competitor_landscape: {
+          type: Type.OBJECT,
+          properties: {
+            competitors: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  website: { type: Type.STRING },
+                  positioning_summary: { type: Type.STRING },
+                  target_customers: { type: Type.STRING },
+                  offers: { type: Type.STRING },
+                  pricing_notes: { type: Type.STRING },
+                  messaging_angles: { type: Type.STRING },
+                  strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  differentiation_opportunities: { type: Type.STRING },
+                  source_ids: { type: Type.ARRAY, items: { type: Type.STRING } },
+                },
+              },
+            },
+            category_notes: { type: Type.STRING },
+          },
+        },
+        market_and_audience_insights: {
+          type: Type.OBJECT,
+          properties: {
+            trends: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  trend: { type: Type.STRING },
+                  source_ids: { type: Type.ARRAY, items: { type: Type.STRING } },
+                },
+              },
+            },
+            customer_pains: { type: Type.ARRAY, items: { type: Type.STRING } },
+            buying_triggers: { type: Type.ARRAY, items: { type: Type.STRING } },
+            objections_and_risks: { type: Type.ARRAY, items: { type: Type.STRING } },
+          },
+        },
+        campaign_foundations: {
+          type: Type.OBJECT,
+          properties: {
+            positioning_statement: { type: Type.STRING },
+            messaging_pillars: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  pillar: { type: Type.STRING },
+                  key_message: { type: Type.STRING },
+                },
+              },
+            },
+            proof_points: { type: Type.ARRAY, items: { type: Type.STRING } },
+            claims_rules: {
+              type: Type.OBJECT,
+              properties: {
+                allowed: { type: Type.ARRAY, items: { type: Type.STRING } },
+                not_allowed: { type: Type.ARRAY, items: { type: Type.STRING } },
+                needs_proof: { type: Type.ARRAY, items: { type: Type.STRING } },
+              },
+            },
+            recommended_cta_patterns: { type: Type.ARRAY, items: { type: Type.STRING } },
+            suggested_channel_strategy: {
+              type: Type.OBJECT,
+              properties: {
+                linkedin: { type: Type.STRING },
+                instagram: { type: Type.STRING },
+                facebook: { type: Type.STRING },
+                x: { type: Type.STRING },
+              },
+            },
+            content_themes: { type: Type.ARRAY, items: { type: Type.STRING } },
+            content_series: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  title: { type: Type.STRING },
+                  concept: { type: Type.STRING },
+                },
+              },
+            },
+            first_30_days_plan: { type: Type.ARRAY, items: { type: Type.STRING } },
+          },
+        },
+        client_deck_outline: {
+          type: Type.OBJECT,
+          properties: {
+            slides: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  slide_title: { type: Type.STRING },
+                  key_points: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  visuals_suggestions: { type: Type.STRING },
+                  data_or_sources_to_show: { type: Type.STRING },
+                },
+              },
+            },
+          },
+        },
+        assumptions: { type: Type.ARRAY, items: { type: Type.STRING } },
+        unknowns_and_questions: { type: Type.ARRAY, items: { type: Type.STRING } },
+        sources_needed: { type: Type.ARRAY, items: { type: Type.STRING } },
+      },
     },
-    body: JSON.stringify(body)
-  });
-  
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Gemini API error: ${response.status} - ${error}`);
-  }
-  
-  return await response.json();
-}
+    research_foundation_pack_markdown: { type: Type.STRING },
+  },
+  required: ['research_foundation_pack_json', 'research_foundation_pack_markdown'],
+};
 
-/**
- * Generate content with JSON output
- */
-export async function generateJSON<T = any>(
-  prompt: string,
-  systemInstruction?: string,
-  modelName: string = 'gemini-3-flash-preview',
-  enableGrounding: boolean = false
-): Promise<{ data: T; tokensIn: number; tokensOut: number }> {
-  const GEMINI_API_KEY = getApiKey();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`;
-  
-  const body: any = {
-    contents: [{
-      parts: [{ text: prompt }]
-    }],
-    generationConfig: {
-      responseMimeType: 'application/json'
-    }
+// ─── Types (ported from ai-studio-exports/flow-research-agent/types.ts) ───
+export interface ResearchFoundationPackJson {
+  sources: Array<{ id: string; title: string; url: string; publisher: string; accessed_at: string; notes: string }>;
+  lean_canvas: {
+    problem: string;
+    customer_segments: string;
+    unique_value_proposition: string;
+    solution: string;
+    channels: string;
+    revenue_streams: string;
+    cost_structure: string;
+    key_metrics: string;
+    unfair_advantage: string;
   };
-  
-  if (systemInstruction) {
-    body.systemInstruction = {
-      parts: [{ text: systemInstruction }]
-    };
-  }
-  
-  // Add Google Search grounding if enabled
-  if (enableGrounding) {
-    body.tools = [{ googleSearch: {} }];
-  }
-  
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-client': 'genai-js/0.21.0',
-    },
-    body: JSON.stringify(body)
-  });
-  
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Gemini API error: ${response.status} - ${error}`);
-  }
-  
-  const result = await response.json();
-  const text = result.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-  
-  // Extract token counts from usage metadata
-  const tokensIn = result.usageMetadata?.promptTokenCount || 0;
-  const tokensOut = result.usageMetadata?.candidatesTokenCount || 0;
-
-  try {
-    const data = JSON.parse(text) as T;
-    return { data, tokensIn, tokensOut };
-  } catch (error) {
-    throw new Error(`Failed to parse JSON response: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  swot: { strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[] };
+  competitor_landscape: {
+    competitors: Array<{
+      name: string;
+      website: string;
+      positioning_summary: string;
+      target_customers: string;
+      offers: string;
+      pricing_notes: string;
+      messaging_angles: string;
+      strengths: string[];
+      weaknesses: string[];
+      differentiation_opportunities: string;
+      source_ids: string[];
+    }>;
+    category_notes: string;
+  };
+  market_and_audience_insights: {
+    trends: Array<{ trend: string; source_ids: string[] }>;
+    customer_pains: string[];
+    buying_triggers: string[];
+    objections_and_risks: string[];
+  };
+  campaign_foundations: {
+    positioning_statement: string;
+    messaging_pillars: Array<{ pillar: string; key_message: string }>;
+    proof_points: string[];
+    claims_rules: { allowed: string[]; not_allowed: string[]; needs_proof: string[] };
+    recommended_cta_patterns: string[];
+    suggested_channel_strategy: { linkedin: string; instagram: string; facebook: string; x: string };
+    content_themes: string[];
+    content_series: Array<{ title: string; concept: string }>;
+    first_30_days_plan: string[];
+  };
+  client_deck_outline: {
+    slides: Array<{
+      slide_title: string;
+      key_points: string[];
+      visuals_suggestions: string;
+      data_or_sources_to_show: string;
+    }>;
+  };
+  assumptions: string[];
+  unknowns_and_questions: string[];
+  sources_needed: string[];
 }
 
-/**
- * Extract token usage from Gemini response
- */
-export function extractTokenUsage(result: any): {
+export interface ResearchResponse {
+  research_foundation_pack_json: ResearchFoundationPackJson;
+  research_foundation_pack_markdown: string;
   tokensIn: number;
   tokensOut: number;
-} {
-  const metadata = result.usageMetadata;
-  return {
-    tokensIn: metadata?.promptTokenCount || 0,
-    tokensOut: metadata?.candidatesTokenCount || 0
-  };
+}
+
+// ─── Main function ─────────────────────────────────────────────────────────
+export async function generateResearchPack(onboardingData: string): Promise<ResearchResponse> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY environment variable is required');
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          {
+            text: `Perform a deep-dive research analysis based on this client onboarding info.\n\nOnboarding Report Content:\n${onboardingData}`,
+          },
+        ],
+      },
+    ],
+    config: {
+      systemInstruction: RESEARCH_SYSTEM_INSTRUCTION,
+      responseMimeType: 'application/json',
+      responseSchema: RESEARCH_RESPONSE_SCHEMA,
+      temperature: 0.3,
+      tools: [{ googleSearch: {} }],
+    },
+  });
+
+  const text = response.text;
+  if (!text) {
+    throw new Error('No response generated from Gemini.');
+  }
+
+  const parsed = JSON.parse(text) as Omit<ResearchResponse, 'tokensIn' | 'tokensOut'>;
+
+  const tokensIn = (response as any).usageMetadata?.promptTokenCount ?? 0;
+  const tokensOut = (response as any).usageMetadata?.candidatesTokenCount ?? 0;
+
+  return { ...parsed, tokensIn, tokensOut };
 }
