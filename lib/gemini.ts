@@ -302,3 +302,132 @@ export async function generateResearchPack(onboardingData: string): Promise<Rese
 
   return { ...parsed, tokensIn, tokensOut };
 }
+
+// ─── Presentation Agent ────────────────────────────────────────────────────
+
+const PRESENTATION_SYSTEM_INSTRUCTION = `
+Role
+You are the Senior Creative Strategist for Flow Productions. You receive a fully researched strategic foundation pack and knowledge base files for a client. Your job is to produce a complete, client-ready presentation script — slide by slide — that demonstrates deep understanding of their business and presents our strategic recommendations.
+
+Audience
+This deck is shown to the CLIENT. It must be professional, confident, and persuasive. It proves we have done our homework and that our strategy is grounded in real market intelligence.
+
+Tone
+- Confident, clear, strategic
+- No agency jargon
+- Client-centric: talk about THEIR world, not ours
+- Data-backed where possible (reference sources from the research pack)
+
+Output Rules
+- Produce exactly the slides defined in the schema — no fewer, no more
+- Every slide must have a compelling headline (not just a label)
+- bullet_points must be complete sentences or strong fragments — not single words
+- speaker_notes are for the Flow team presenter, not for the client
+- layout_hint guides the visual designer: "two columns", "full bleed image", "icon grid", etc.
+
+Slide Order (mandatory)
+1. Cover
+2. What We Heard From You (onboarding summary)
+3. The Market Opportunity
+4. Your Competitive Landscape
+5. Who You Are Really Talking To (ICP)
+6. What Makes You Different (UVP)
+7. Our Strategic Positioning Recommendation
+8. Messaging Pillars
+9. Content Pillars & Themes
+10. Channel Strategy
+11. Your 30-Day Launch Plan
+12. What We Need From You (unknowns + brand gaps)
+13. Next Steps
+`;
+
+export interface PresentationSlide {
+  slide_number: number;
+  slide_title: string;
+  slide_type: 'cover' | 'section' | 'content' | 'quote' | 'cta' | 'list';
+  headline: string;
+  body_text: string;
+  bullet_points: string[];
+  speaker_notes: string;
+  layout_hint: string;
+}
+
+export interface PresentationResponse {
+  client_name: string;
+  deck_title: string;
+  slides: PresentationSlide[];
+  tokensIn: number;
+  tokensOut: number;
+}
+
+const PRESENTATION_RESPONSE_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    client_name: { type: Type.STRING },
+    deck_title: { type: Type.STRING },
+    slides: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          slide_number: { type: Type.NUMBER },
+          slide_title: { type: Type.STRING },
+          slide_type: { type: Type.STRING },
+          headline: { type: Type.STRING },
+          body_text: { type: Type.STRING },
+          bullet_points: { type: Type.ARRAY, items: { type: Type.STRING } },
+          speaker_notes: { type: Type.STRING },
+          layout_hint: { type: Type.STRING },
+        },
+      },
+    },
+  },
+  required: ['client_name', 'deck_title', 'slides'],
+};
+
+export async function generatePresentationPack(
+  researchPack: ResearchFoundationPackJson,
+  kbFiles: Array<{ title: string; content: string }>,
+  clientName: string
+): Promise<PresentationResponse> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY environment variable is required');
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  const kbSummary = kbFiles
+    .map((f) => `### ${f.title}\n${f.content}`)
+    .join('\n\n---\n\n');
+
+  const prompt = `
+Client Name: ${clientName}
+
+Research Foundation Pack:
+${JSON.stringify(researchPack, null, 2)}
+
+Knowledge Base Files:
+${kbSummary}
+
+Based on all of the above, produce a complete 13-slide client presentation following the mandatory slide order in your instructions.
+`;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    config: {
+      systemInstruction: PRESENTATION_SYSTEM_INSTRUCTION,
+      responseMimeType: 'application/json',
+      responseSchema: PRESENTATION_RESPONSE_SCHEMA,
+      temperature: 0.4,
+    },
+  });
+
+  const text = response.text;
+  if (!text) throw new Error('No response generated from Gemini.');
+
+  const parsed = JSON.parse(text) as Omit<PresentationResponse, 'tokensIn' | 'tokensOut'>;
+  const tokensIn = (response as any).usageMetadata?.promptTokenCount ?? 0;
+  const tokensOut = (response as any).usageMetadata?.candidatesTokenCount ?? 0;
+
+  return { ...parsed, tokensIn, tokensOut };
+}

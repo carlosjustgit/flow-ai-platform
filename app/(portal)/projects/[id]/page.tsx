@@ -466,6 +466,14 @@ export default function ProjectDetailPage() {
           return;
         }
         endpoint = '/api/workers/kb-packager';
+      } else if (agentType === 'presentation') {
+        inputArtifact = findArtifact('research_foundation_pack_json');
+        if (!inputArtifact) {
+          setAgentStatus({ message: 'Run the Research Agent first — it produces the input for the Presentation Agent.', type: 'error' });
+          setRunningAgent(null);
+          return;
+        }
+        endpoint = '/api/workers/presentation';
       } else {
         setAgentStatus({ message: `Agent "${agentType}" is not yet available.`, type: 'error' });
         setRunningAgent(null);
@@ -512,6 +520,10 @@ export default function ProjectDetailPage() {
   const researchJsonArtifact = findArtifact('research_foundation_pack_json');
   const researchMdArtifact = findArtifact('research_foundation_pack_md');
   const hasResearch = !!researchJsonArtifact;
+  const kbArtifacts = artifacts.filter(a => a.type === 'kb_file');
+  const hasKb = kbArtifacts.length > 0;
+  const presentationArtifact = findArtifact('presentation');
+  const hasPresentation = !!presentationArtifact;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -572,30 +584,50 @@ export default function ProjectDetailPage() {
             <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
 
             {/* Step 3 - KB Builder */}
-            <div className="flex-1 min-w-[180px] p-4 rounded-lg border-2 border-gray-200 bg-white">
+            <div className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 ${hasKb ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white'}`}>
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-xl">📚</span>
+                <span className="text-xl">{hasKb ? '✅' : '📚'}</span>
                 <h3 className="font-semibold text-sm">3. KB Builder</h3>
               </div>
-              <p className="text-xs text-gray-500 mb-3">Uses research pack</p>
-              <button
-                onClick={() => runAgent('kb_packager')}
-                disabled={runningAgent !== null || !hasResearch}
-                className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                {runningAgent === 'kb_packager' ? 'Running...' : 'Run KB Builder'}
-              </button>
+              <p className="text-xs text-gray-500 mb-3">{hasKb ? `${kbArtifacts.length} files ready` : 'Uses research pack'}</p>
+              {!hasKb && (
+                <button
+                  onClick={() => runAgent('kb_packager')}
+                  disabled={runningAgent !== null || !hasResearch}
+                  className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  {runningAgent === 'kb_packager' ? 'Running...' : 'Run KB Builder'}
+                </button>
+              )}
             </div>
 
             <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
 
-            {/* Step 4 - Presentation (future) */}
-            <div className="flex-1 min-w-[180px] p-4 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50">
+            {/* Step 4 - Presentation Agent */}
+            <div className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 ${hasPresentation ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white'}`}>
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-xl">🎨</span>
-                <h3 className="font-semibold text-sm text-gray-400">4. Presentation</h3>
+                <span className="text-xl">{hasPresentation ? '✅' : '🎨'}</span>
+                <h3 className="font-semibold text-sm">4. Presentation</h3>
               </div>
-              <p className="text-xs text-gray-400">Coming soon</p>
+              <p className="text-xs text-gray-500 mb-3">{hasPresentation ? 'PPTX ready to download' : 'Uses research + KB files'}</p>
+              {hasPresentation ? (
+                <a
+                  href={(presentationArtifact as any)?.file_url ?? '#'}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block w-full px-3 py-1.5 bg-green-700 text-white text-xs rounded hover:bg-green-800 text-center"
+                >
+                  Download PPTX
+                </a>
+              ) : (
+                <button
+                  onClick={() => runAgent('presentation')}
+                  disabled={runningAgent !== null || !hasResearch}
+                  className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  {runningAgent === 'presentation' ? 'Building...' : 'Run Presentation Agent'}
+                </button>
+              )}
             </div>
           </div>
         </section>
@@ -611,13 +643,39 @@ export default function ProjectDetailPage() {
           </section>
         )}
 
+        {/* Presentation download section */}
+        {hasPresentation && (
+          <section>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Client Presentation</h2>
+            <div className="bg-white rounded-xl shadow border border-gray-200 p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="font-bold text-gray-900">{(presentationArtifact as any)?.title}</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Flow Productions branded PPTX · {new Date((presentationArtifact as any)?.created_at).toLocaleString()}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Open in PowerPoint or Google Slides. All content is editable.
+                </p>
+              </div>
+              <a
+                href={(presentationArtifact as any)?.file_url ?? '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="flex-shrink-0 px-6 py-3 bg-purple-700 text-white font-semibold rounded-lg hover:bg-purple-800 text-sm"
+              >
+                Download PPTX
+              </a>
+            </div>
+          </section>
+        )}
+
         {/* Other artifacts (KB files, etc.) */}
-        {artifacts.filter(a => !['research_foundation_pack_json', 'research_foundation_pack_md'].includes(a.type)).length > 0 && (
+        {artifacts.filter(a => !['research_foundation_pack_json', 'research_foundation_pack_md', 'presentation', 'presentation_content_json'].includes(a.type)).length > 0 && (
           <section>
             <h2 className="text-xl font-bold text-gray-900 mb-4">Other Artifacts</h2>
             <div className="space-y-3">
               {artifacts
-                .filter(a => !['research_foundation_pack_json', 'research_foundation_pack_md'].includes(a.type))
+                .filter(a => !['research_foundation_pack_json', 'research_foundation_pack_md', 'presentation', 'presentation_content_json'].includes(a.type))
                 .map((artifact) => (
                   <div key={artifact.id} className="bg-white p-4 rounded-lg shadow-sm border">
                     <div className="flex justify-between items-center">
