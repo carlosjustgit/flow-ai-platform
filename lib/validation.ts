@@ -1,8 +1,10 @@
 import Ajv2020 from 'ajv/dist/2020';
+import addFormats from 'ajv-formats';
 import { readFile } from 'fs/promises';
 import { resolve } from 'path';
 
 const ajv = new Ajv2020({ allErrors: true });
+addFormats(ajv);
 
 /**
  * Validate data against a JSON schema
