@@ -420,6 +420,7 @@ export default function ProjectDetailPage() {
   const [runningAgent, setRunningAgent] = useState<string | null>(null);
   const [agentStatus, setAgentStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [activeStep, setActiveStep] = useState<'onboarding' | 'research' | 'kb' | 'presentation'>('research');
+  const [runningSeconds, setRunningSeconds] = useState(0);
 
   const loadData = useCallback(async () => {
     try {
@@ -441,6 +442,13 @@ export default function ProjectDetailPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Tick a seconds counter while any agent is running so the user sees progress
+  useEffect(() => {
+    if (!runningAgent) { setRunningSeconds(0); return; }
+    const timer = setInterval(() => setRunningSeconds(s => s + 1), 1000);
+    return () => clearInterval(timer);
+  }, [runningAgent]);
+
   // Auto-select furthest completed step once data loads.
   // MUST be before any early returns to satisfy Rules of Hooks.
   useEffect(() => {
@@ -460,41 +468,41 @@ export default function ProjectDetailPage() {
     setRunningAgent(agentType);
     setAgentStatus(null);
 
-    try {
-      let inputArtifact: Artifact | undefined;
-      let endpoint: string;
+    let inputArtifact: Artifact | undefined;
+    let endpoint: string;
 
-      if (agentType === 'research') {
-        inputArtifact = findArtifact('onboarding_report_json') ?? findArtifact('onboarding_report');
-        if (!inputArtifact) {
-          setAgentStatus({ message: 'No onboarding report found. Complete the onboarding survey first.', type: 'error' });
-          setRunningAgent(null);
-          return;
-        }
-        endpoint = '/api/workers/research';
-      } else if (agentType === 'kb_packager') {
-        inputArtifact = findArtifact('research_foundation_pack_json');
-        if (!inputArtifact) {
-          setAgentStatus({ message: 'Run the Research Agent first — it produces the input for KB Builder.', type: 'error' });
-          setRunningAgent(null);
-          return;
-        }
-        endpoint = '/api/workers/kb-packager';
-      } else if (agentType === 'presentation') {
-        inputArtifact = findArtifact('research_foundation_pack_json');
-        if (!inputArtifact) {
-          setAgentStatus({ message: 'Run the Research Agent first — it produces the input for the Presentation Agent.', type: 'error' });
-          setRunningAgent(null);
-          return;
-        }
-        endpoint = '/api/workers/presentation';
-      } else {
-        setAgentStatus({ message: `Agent "${agentType}" is not yet available.`, type: 'error' });
+    if (agentType === 'research') {
+      inputArtifact = findArtifact('onboarding_report_json') ?? findArtifact('onboarding_report');
+      if (!inputArtifact) {
+        setAgentStatus({ message: 'No onboarding report found. Complete the onboarding survey first.', type: 'error' });
         setRunningAgent(null);
         return;
       }
+      endpoint = '/api/workers/research';
+    } else if (agentType === 'kb_packager') {
+      inputArtifact = findArtifact('research_foundation_pack_json');
+      if (!inputArtifact) {
+        setAgentStatus({ message: 'Run the Research Agent first — it produces the input for KB Builder.', type: 'error' });
+        setRunningAgent(null);
+        return;
+      }
+      endpoint = '/api/workers/kb-packager';
+    } else if (agentType === 'presentation') {
+      inputArtifact = findArtifact('research_foundation_pack_json');
+      if (!inputArtifact) {
+        setAgentStatus({ message: 'Run the Research Agent first — it produces the input for the Presentation Agent.', type: 'error' });
+        setRunningAgent(null);
+        return;
+      }
+      endpoint = '/api/workers/presentation';
+    } else {
+      setAgentStatus({ message: `Agent "${agentType}" is not yet available.`, type: 'error' });
+      setRunningAgent(null);
+      return;
+    }
 
-      // Create job record
+    try {
+      // Create job record in Supabase so we can poll it
       const { data: job, error: jobError } = await supabase
         .from('jobs')
         .insert({ project_id: projectId, type: agentType, status: 'running', input_artifact_id: inputArtifact.id } as any)
@@ -503,30 +511,52 @@ export default function ProjectDetailPage() {
 
       if (jobError) throw jobError;
 
-      // Call worker — some agents (research, presentation) take 60-120s
-      const res = await fetch(endpoint, {
+      const jobId = (job as any).id;
+
+      // Fire the worker — don't await, let it run on the server.
+      // We'll learn it's done via polling below, not from the HTTP response.
+      fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: projectId, input_artifact_id: inputArtifact.id, job_id: (job as any).id }),
-        signal: AbortSignal.timeout(290_000), // 4m 50s — just under Vercel's 5m limit
-      });
+        body: JSON.stringify({ project_id: projectId, input_artifact_id: inputArtifact.id, job_id: jobId }),
+      }).catch(() => {}); // errors are surfaced via job status polling
 
-      let result: any;
-      try {
-        result = await res.json();
-      } catch {
-        throw new Error('Agent is still running or timed out. Refresh the page in a moment to check if it completed.');
-      }
-      if (!res.ok) throw new Error(result.error || 'Agent failed');
+      // Poll Supabase every 5 s — stop when done or failed
+      const POLL_INTERVAL = 5_000;
+      const MAX_WAIT_MS = 360_000; // 6 min absolute cap
+      const startedAt = Date.now();
 
-      setAgentStatus({ message: `${AGENT_LABELS[agentType] || agentType} completed successfully.`, type: 'success' });
-      await loadData();
+      const poll = setInterval(async () => {
+        try {
+          const { data: jobRow } = await supabase
+            .from('jobs')
+            .select('status, error')
+            .eq('id', jobId)
+            .single();
+
+          if (!jobRow) return;
+
+          if (jobRow.status === 'done' || jobRow.status === 'needs_approval') {
+            clearInterval(poll);
+            setRunningAgent(null);
+            setAgentStatus({ message: `${AGENT_LABELS[agentType] || agentType} completed successfully.`, type: 'success' });
+            await loadData();
+          } else if (jobRow.status === 'failed') {
+            clearInterval(poll);
+            setRunningAgent(null);
+            setAgentStatus({ message: `Error: ${jobRow.error || 'Agent failed'}`, type: 'error' });
+          } else if (Date.now() - startedAt > MAX_WAIT_MS) {
+            clearInterval(poll);
+            setRunningAgent(null);
+            setAgentStatus({ message: 'Agent is taking longer than expected. Check back soon — it may still be running.', type: 'error' });
+          }
+        } catch {
+          // network hiccup — keep polling
+        }
+      }, POLL_INTERVAL);
+
     } catch (err: any) {
-      const msg = err.name === 'TimeoutError'
-        ? 'The agent is taking longer than expected. Refresh in a moment — it may still complete in the background.'
-        : `Error: ${err.message}`;
-      setAgentStatus({ message: msg, type: 'error' });
-    } finally {
+      setAgentStatus({ message: `Error: ${err.message}`, type: 'error' });
       setRunningAgent(null);
     }
   };
@@ -614,7 +644,7 @@ export default function ProjectDetailPage() {
                   disabled={runningAgent !== null || !onboardingArtifact}
                   className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
-                  {runningAgent === 'research' ? 'Running...' : 'Run Research Agent'}
+                  {runningAgent === 'research' ? `Running… ${runningSeconds}s` : 'Run Research Agent'}
                 </button>
               )}
             </div>
@@ -641,7 +671,7 @@ export default function ProjectDetailPage() {
                   disabled={runningAgent !== null || !hasResearch}
                   className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
-                  {runningAgent === 'kb_packager' ? 'Running...' : 'Run KB Builder'}
+                  {runningAgent === 'kb_packager' ? `Running… ${runningSeconds}s` : 'Run KB Builder'}
                 </button>
               )}
             </div>
@@ -678,7 +708,7 @@ export default function ProjectDetailPage() {
                   disabled={runningAgent !== null || !hasResearch}
                   className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
-                  {runningAgent === 'presentation' ? 'Building… (60-90s)' : 'Run Presentation Agent'}
+                  {runningAgent === 'presentation' ? `Building… ${runningSeconds}s` : 'Run Presentation Agent'}
                 </button>
               )}
             </div>
