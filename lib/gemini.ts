@@ -307,38 +307,27 @@ export async function generateResearchPack(onboardingData: string): Promise<Rese
 
 const PRESENTATION_SYSTEM_INSTRUCTION = `
 Role
-You are the Senior Creative Strategist for Flow Productions. You receive a fully researched strategic foundation pack and knowledge base files for a client. Your job is to produce a complete, client-ready presentation script — slide by slide — that demonstrates deep understanding of their business and presents our strategic recommendations.
+You are the Senior Creative Strategist for Flow Productions. You receive a researched strategic foundation pack for a client. Produce a concise, high-impact client presentation — 8 slides.
 
 Audience
-This deck is shown to the CLIENT. It must be professional, confident, and persuasive. It proves we have done our homework and that our strategy is grounded in real market intelligence.
+Shown to the CLIENT. Professional, confident, persuasive. Every slide proves we understand their business.
 
-Tone
-- Confident, clear, strategic
-- No agency jargon
-- Client-centric: talk about THEIR world, not ours
-- Data-backed where possible (reference sources from the research pack)
+Tone: confident, clear, strategic, client-centric, no jargon.
 
 Output Rules
-- Produce exactly the slides defined in the schema — no fewer, no more
-- Every slide must have a compelling headline (not just a label)
-- bullet_points must be complete sentences or strong fragments — not single words
-- speaker_notes are for the Flow team presenter, not for the client
-- layout_hint guides the visual designer: "two columns", "full bleed image", "icon grid", etc.
+- Produce EXACTLY 8 slides — no more, no fewer.
+- Every slide needs a compelling headline, 2-4 bullet points (full sentences), and brief speaker notes.
+- layout_hint: one of "cover", "two-column", "full-bleed", "icon-grid", "quote", "timeline", "cta"
 
-Slide Order (mandatory)
-1. Cover
-2. What We Heard From You (onboarding summary)
-3. The Market Opportunity
-4. Your Competitive Landscape
-5. Who You Are Really Talking To (ICP)
-6. What Makes You Different (UVP)
-7. Our Strategic Positioning Recommendation
-8. Messaging Pillars
-9. Content Pillars & Themes
-10. Channel Strategy
-11. Your 30-Day Launch Plan
-12. What We Need From You (unknowns + brand gaps)
-13. Next Steps
+Mandatory Slide Order
+1. Cover — deck title + client name tagline
+2. What We Heard From You — key onboarding findings
+3. The Market Opportunity — size, trends, timing
+4. Your Competitive Landscape — top 3 competitors, where you win
+5. Who You're Talking To — ICP summary
+6. Your Strategic Positioning — our recommendation
+7. Content & Channel Strategy — pillars + platform focus
+8. Next Steps — 3 clear actions with owners
 `;
 
 export interface PresentationSlide {
@@ -444,13 +433,13 @@ ${JSON.stringify(compressedPack, null, 2)}
 Knowledge Base Summary:
 ${kbSummary}
 
-Produce a complete 13-slide client presentation following the mandatory slide order in your instructions.`;
+Produce exactly 8 slides following the mandatory slide order in your instructions.`;
 
-  // 150-second safety net — if Gemini hangs, surface a clear error instead of timing out silently
+  // 240-second safety net — just under Vercel's 300s max
   const timeoutPromise = new Promise<never>((_, reject) =>
     setTimeout(
-      () => reject(new Error('Gemini presentation call timed out after 150s. Try again — the model may be under load.')),
-      150_000
+      () => reject(new Error('Gemini timed out after 240s. The model may be under load — please try again.')),
+      240_000
     )
   );
 
