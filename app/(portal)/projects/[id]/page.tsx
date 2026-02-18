@@ -28,6 +28,15 @@ interface Job {
   created_at: string;
 }
 
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+/** Safely coerce a value that might be a string or undefined into an array. */
+function toArray(val: unknown): string[] {
+  if (Array.isArray(val)) return val as string[];
+  if (typeof val === 'string' && val.trim()) return [val];
+  return [];
+}
+
 // ─── Research Viewer (ported from AI Studio OutputSection.tsx) ──────────────
 
 type ResearchTab = 'overview' | 'swot' | 'lean' | 'competitors' | 'strategy' | 'raw';
@@ -116,7 +125,7 @@ function ResearchViewer({ pack, markdown }: { pack: ResearchFoundationPackJson; 
               <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
                 <h3 className="font-bold text-gray-900 mb-4">Target Audience Pains</h3>
                 <ul className="space-y-2">
-                  {pack.market_and_audience_insights?.customer_pains?.map((pain, i) => (
+                    {toArray(pack.market_and_audience_insights?.customer_pains).map((pain, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
                       <span className="text-red-500 mt-0.5 flex-shrink-0">•</span>{pain}
                     </li>
@@ -126,7 +135,7 @@ function ResearchViewer({ pack, markdown }: { pack: ResearchFoundationPackJson; 
               <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
                 <h3 className="font-bold text-gray-900 mb-4">Key Opportunities</h3>
                 <ul className="space-y-2">
-                  {pack.swot?.opportunities?.map((opp, i) => (
+                  {toArray(pack.swot?.opportunities).map((opp, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
                       <span className="text-green-500 mt-0.5 flex-shrink-0">↗</span>{opp}
                     </li>
@@ -141,15 +150,15 @@ function ResearchViewer({ pack, markdown }: { pack: ResearchFoundationPackJson; 
         {tab === 'swot' && (
           <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
             {[
-              { label: 'Strengths', items: pack.swot?.strengths, color: 'border-green-500', icon: '✓', iconColor: 'text-green-600' },
-              { label: 'Weaknesses', items: pack.swot?.weaknesses, color: 'border-orange-400', icon: '!', iconColor: 'text-orange-500' },
-              { label: 'Opportunities', items: pack.swot?.opportunities, color: 'border-blue-500', icon: '↗', iconColor: 'text-blue-600' },
-              { label: 'Threats', items: pack.swot?.threats, color: 'border-red-500', icon: '×', iconColor: 'text-red-600' },
+              { label: 'Strengths', items: toArray(pack.swot?.strengths), color: 'border-green-500', icon: '✓', iconColor: 'text-green-600' },
+              { label: 'Weaknesses', items: toArray(pack.swot?.weaknesses), color: 'border-orange-400', icon: '!', iconColor: 'text-orange-500' },
+              { label: 'Opportunities', items: toArray(pack.swot?.opportunities), color: 'border-blue-500', icon: '↗', iconColor: 'text-blue-600' },
+              { label: 'Threats', items: toArray(pack.swot?.threats), color: 'border-red-500', icon: '×', iconColor: 'text-red-600' },
             ].map(({ label, items, color, icon, iconColor }) => (
               <div key={label} className={`bg-white p-6 rounded-lg border-t-4 ${color} shadow-sm`}>
                 <h3 className="font-bold text-lg text-gray-900 mb-4 uppercase tracking-wider">{label}</h3>
                 <ul className="space-y-3">
-                  {items?.map((item, i) => (
+                  {items.map((item, i) => (
                     <li key={i} className="flex gap-3 text-sm text-gray-700">
                       <span className={`font-bold ${iconColor} flex-shrink-0`}>{icon}</span>{item}
                     </li>
@@ -210,7 +219,7 @@ function ResearchViewer({ pack, markdown }: { pack: ResearchFoundationPackJson; 
         {/* COMPETITORS */}
         {tab === 'competitors' && (
           <div className="max-w-5xl mx-auto space-y-6">
-            {pack.competitor_landscape?.competitors?.map((comp, idx) => (
+            {toArray(pack.competitor_landscape?.competitors).map((comp: any, idx) => (
               <div key={idx} className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
                 <div className="flex justify-between items-start mb-4">
                   <div>
@@ -253,19 +262,19 @@ function ResearchViewer({ pack, markdown }: { pack: ResearchFoundationPackJson; 
                       <div className="text-xs font-bold text-purple-600 uppercase mb-1">Flow's Opportunity</div>
                       <p className="text-sm text-gray-900 font-medium">{comp.differentiation_opportunities}</p>
                     </div>
-                    {comp.strengths?.length > 0 && (
+                    {toArray(comp.strengths).length > 0 && (
                       <div>
                         <div className="text-xs font-bold text-gray-400 uppercase mb-1">Their Strengths</div>
                         <ul className="space-y-1">
-                          {comp.strengths.map((s, i) => <li key={i} className="text-xs text-gray-600">+ {s}</li>)}
+                          {toArray(comp.strengths).map((s, i) => <li key={i} className="text-xs text-gray-600">+ {s}</li>)}
                         </ul>
                       </div>
                     )}
-                    {comp.weaknesses?.length > 0 && (
+                    {toArray(comp.weaknesses).length > 0 && (
                       <div>
                         <div className="text-xs font-bold text-gray-400 uppercase mb-1">Their Weaknesses</div>
                         <ul className="space-y-1">
-                          {comp.weaknesses.map((w, i) => <li key={i} className="text-xs text-gray-600">- {w}</li>)}
+                          {toArray(comp.weaknesses).map((w, i) => <li key={i} className="text-xs text-gray-600">- {w}</li>)}
                         </ul>
                       </div>
                     )}
@@ -293,11 +302,11 @@ function ResearchViewer({ pack, markdown }: { pack: ResearchFoundationPackJson; 
             </div>
 
             {/* Messaging pillars */}
-            {pack.campaign_foundations?.messaging_pillars?.length > 0 && (
+            {toArray(pack.campaign_foundations?.messaging_pillars).length > 0 && (
               <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
                 <h3 className="font-bold text-lg text-gray-900 mb-4">Messaging Pillars</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {pack.campaign_foundations.messaging_pillars.map((p, i) => (
+                  {toArray(pack.campaign_foundations?.messaging_pillars).map((p: any, i) => (
                     <div key={i} className="p-4 bg-gray-50 rounded border border-gray-200">
                       <div className="font-semibold text-gray-900 mb-1">{p.pillar}</div>
                       <div className="text-sm text-gray-600">{p.key_message}</div>
@@ -312,7 +321,7 @@ function ResearchViewer({ pack, markdown }: { pack: ResearchFoundationPackJson; 
               <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
                 <h3 className="font-bold text-lg text-gray-900 mb-4">Content Themes</h3>
                 <div className="flex flex-wrap gap-2">
-                  {pack.campaign_foundations?.content_themes?.map((theme, i) => (
+                  {toArray(pack.campaign_foundations?.content_themes).map((theme, i) => (
                     <span key={i} className="px-3 py-1.5 bg-gray-100 text-gray-800 rounded-md text-sm border border-gray-200">
                       {theme}
                     </span>
@@ -335,11 +344,11 @@ function ResearchViewer({ pack, markdown }: { pack: ResearchFoundationPackJson; 
             </div>
 
             {/* Content series */}
-            {pack.campaign_foundations?.content_series?.length > 0 && (
+            {toArray(pack.campaign_foundations?.content_series).length > 0 && (
               <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
                 <h3 className="font-bold text-lg text-gray-900 mb-4">Content Series</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {pack.campaign_foundations.content_series.map((s, i) => (
+                  {toArray(pack.campaign_foundations?.content_series).map((s: any, i) => (
                     <div key={i} className="p-4 bg-gray-50 rounded border border-gray-200">
                       <div className="font-semibold text-gray-900 mb-1">{s.title}</div>
                       <div className="text-sm text-gray-600">{s.concept}</div>
@@ -353,7 +362,7 @@ function ResearchViewer({ pack, markdown }: { pack: ResearchFoundationPackJson; 
             <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
               <h3 className="font-bold text-lg text-gray-900 mb-4">First 30 Days Action Plan</h3>
               <div className="space-y-4">
-                {pack.campaign_foundations?.first_30_days_plan?.map((item, i) => (
+                {toArray(pack.campaign_foundations?.first_30_days_plan).map((item, i) => (
                   <div key={i} className="flex gap-4">
                     <div className="flex-shrink-0 w-8 h-8 rounded-full bg-purple-700 text-white flex items-center justify-center font-bold text-sm">
                       {i + 1}
