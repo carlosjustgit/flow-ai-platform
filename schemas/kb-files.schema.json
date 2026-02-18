@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flowproductions.pt/schemas/kb-files.schema.json",
+  "title": "Knowledge base files output",
+  "type": "array",
+  "minItems": 6,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "filename",
+      "title",
+      "format",
+      "content"
+    ],
+    "properties": {
+      "filename": {
+        "type": "string",
+        "pattern": "^[0-9]{2}-[a-z0-9\\-]+\\.(md|txt)$"
+      },
+      "title": {
+        "type": "string",
+        "minLength": 3
+      },
+      "format": {
+        "type": "string",
+        "enum": [
+          "md",
+          "txt"
+        ]
+      },
+      "content": {
+        "type": "string",
+        "minLength": 50
+      }
+    }
+  }
+}

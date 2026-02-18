@@ -1,0 +1,532 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flowproductions.pt/schemas/research-foundation.schema.json",
+  "title": "Research foundation pack",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sources",
+    "lean_canvas",
+    "swot",
+    "competitor_landscape",
+    "market_and_audience_insights",
+    "campaign_foundations",
+    "client_deck_outline",
+    "assumptions",
+    "unknowns_and_questions",
+    "sources_needed"
+  ],
+  "properties": {
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "url",
+          "publisher",
+          "accessed_at",
+          "notes"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^S[0-9]{3,}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 3
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "publisher": {
+            "type": "string",
+            "minLength": 2
+          },
+          "accessed_at": {
+            "type": "string",
+            "minLength": 8
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "lean_canvas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem",
+        "customer_segments",
+        "unique_value_proposition",
+        "solution",
+        "channels",
+        "revenue_streams",
+        "cost_structure",
+        "key_metrics",
+        "unfair_advantage"
+      ],
+      "properties": {
+        "problem": {
+          "type": "string",
+          "minLength": 20
+        },
+        "customer_segments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "unique_value_proposition": {
+          "type": "string",
+          "minLength": 10
+        },
+        "solution": {
+          "type": "string",
+          "minLength": 20
+        },
+        "channels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "revenue_streams": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "cost_structure": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "key_metrics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "unfair_advantage": {
+          "type": "string",
+          "minLength": 5
+        }
+      }
+    },
+    "swot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strengths",
+        "weaknesses",
+        "opportunities",
+        "threats"
+      ],
+      "properties": {
+        "strengths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2
+        },
+        "weaknesses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2
+        },
+        "opportunities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2
+        },
+        "threats": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2
+        }
+      }
+    },
+    "competitor_landscape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "competitors",
+        "category_notes"
+      ],
+      "properties": {
+        "competitors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "website",
+              "positioning_summary",
+              "target_customers",
+              "offers",
+              "pricing_notes",
+              "messaging_angles",
+              "strengths",
+              "weaknesses",
+              "differentiation_opportunities",
+              "source_ids"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 2
+              },
+              "website": {
+                "type": "string",
+                "format": "uri"
+              },
+              "positioning_summary": {
+                "type": "string",
+                "minLength": 20
+              },
+              "target_customers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "offers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "pricing_notes": {
+                "type": "string"
+              },
+              "messaging_angles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "strengths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "weaknesses": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "differentiation_opportunities": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "source_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^S[0-9]{3,}$"
+                },
+                "minItems": 1
+              }
+            }
+          }
+        },
+        "category_notes": {
+          "type": "string"
+        }
+      }
+    },
+    "market_and_audience_insights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trends",
+        "customer_pains",
+        "buying_triggers",
+        "objections_and_risks"
+      ],
+      "properties": {
+        "trends": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "trend",
+              "why_it_matters",
+              "source_ids"
+            ],
+            "properties": {
+              "trend": {
+                "type": "string",
+                "minLength": 10
+              },
+              "why_it_matters": {
+                "type": "string",
+                "minLength": 10
+              },
+              "source_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^S[0-9]{3,}$"
+                },
+                "minItems": 1
+              }
+            }
+          }
+        },
+        "customer_pains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2
+        },
+        "buying_triggers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2
+        },
+        "objections_and_risks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2
+        }
+      }
+    },
+    "campaign_foundations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "positioning_statement",
+        "messaging_pillars",
+        "proof_points",
+        "claims_rules",
+        "recommended_CTA_patterns",
+        "suggested_channel_strategy",
+        "content_themes",
+        "content_series",
+        "first_30_days_plan"
+      ],
+      "properties": {
+        "positioning_statement": {
+          "type": "string",
+          "minLength": 20
+        },
+        "messaging_pillars": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 3,
+          "maxItems": 6
+        },
+        "proof_points": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 0
+        },
+        "claims_rules": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "allowed",
+            "not_allowed",
+            "needs_proof"
+          ],
+          "properties": {
+            "allowed": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            },
+            "not_allowed": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            },
+            "needs_proof": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        "recommended_CTA_patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 3,
+          "maxItems": 10
+        },
+        "suggested_channel_strategy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "linkedin",
+            "instagram",
+            "facebook",
+            "x"
+          ],
+          "properties": {
+            "linkedin": {
+              "type": "string",
+              "minLength": 20
+            },
+            "instagram": {
+              "type": "string",
+              "minLength": 20
+            },
+            "facebook": {
+              "type": "string",
+              "minLength": 20
+            },
+            "x": {
+              "type": "string",
+              "minLength": 20
+            }
+          }
+        },
+        "content_themes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 6,
+          "maxItems": 12
+        },
+        "content_series": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 5,
+          "maxItems": 12
+        },
+        "first_30_days_plan": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 4,
+          "maxItems": 6
+        }
+      }
+    },
+    "client_deck_outline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slides"
+      ],
+      "properties": {
+        "slides": {
+          "type": "array",
+          "minItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "slide_title",
+              "key_points",
+              "visuals_suggestions",
+              "data_or_sources_to_show"
+            ],
+            "properties": {
+              "slide_title": {
+                "type": "string",
+                "minLength": 3
+              },
+              "key_points": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 2
+              },
+              "visuals_suggestions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "data_or_sources_to_show": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 0
+    },
+    "unknowns_and_questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 0
+    },
+    "sources_needed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 0
+    }
+  }
+}
