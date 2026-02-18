@@ -693,15 +693,23 @@ export default function ProjectDetailPage() {
               </div>
               <p className="text-xs text-gray-500 mb-3">{hasPresentation ? 'PPTX ready to download' : 'Uses research + KB files'}</p>
               {hasPresentation ? (
-                <a
-                  href={(presentationArtifact as any)?.file_url ?? '#'}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="block w-full px-3 py-1.5 bg-green-700 text-white text-xs rounded hover:bg-green-800 text-center"
-                >
-                  Download PPTX
-                </a>
+                <div className="flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
+                  <a
+                    href={(presentationArtifact as any)?.file_url ?? '#'}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block w-full px-3 py-1.5 bg-green-700 text-white text-xs rounded hover:bg-green-800 text-center"
+                  >
+                    Download PPTX
+                  </a>
+                  <button
+                    onClick={() => runAgent('presentation')}
+                    disabled={runningAgent !== null}
+                    className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  >
+                    {runningAgent === 'presentation' ? `Building… ${runningSeconds}s` : 'Re-generate'}
+                  </button>
+                </div>
               ) : (
                 <button
                   onClick={(e) => { e.stopPropagation(); runAgent('presentation'); }}
@@ -796,14 +804,23 @@ export default function ProjectDetailPage() {
                   Open in PowerPoint or Google Slides. All content is editable.
                 </p>
               </div>
-              <a
-                href={(presentationArtifact as any)?.file_url ?? '#'}
-                target="_blank"
-                rel="noreferrer"
-                className="flex-shrink-0 px-6 py-3 bg-purple-700 text-white font-semibold rounded-lg hover:bg-purple-800 text-sm"
-              >
-                Download PPTX
-              </a>
+              <div className="flex-shrink-0 flex gap-3">
+                <button
+                  onClick={() => runAgent('presentation')}
+                  disabled={runningAgent !== null}
+                  className="px-4 py-3 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {runningAgent === 'presentation' ? `Building… ${runningSeconds}s` : 'Re-generate'}
+                </button>
+                <a
+                  href={(presentationArtifact as any)?.file_url ?? '#'}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-6 py-3 bg-purple-700 text-white font-semibold rounded-lg hover:bg-purple-800 text-sm"
+                >
+                  Download PPTX
+                </a>
+              </div>
             </div>
           </section>
         )}
