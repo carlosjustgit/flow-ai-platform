@@ -305,40 +305,39 @@ export async function generateResearchPack(onboardingData: string): Promise<Rese
 
 // ─── Presentation Agent ────────────────────────────────────────────────────
 
+// ─── Presentation: Copy Agent (Step 4a) ────────────────────────────────────
+// Gemini writes the WORDS. pptxgenjs applies the VISUAL TEMPLATE.
+// Keeping them separate makes each fast and independently swappable.
+
 const PRESENTATION_SYSTEM_INSTRUCTION = `
-Role
-You are the Senior Creative Strategist for Flow Productions. You receive a researched strategic foundation pack for a client. Produce a concise, high-impact client presentation — 8 slides.
+You are the Senior Creative Strategist for Flow Productions.
+Your job: write the slide copy for an 8-slide client-facing strategy deck.
+You receive a research foundation pack. Use it to write compelling, specific, evidence-backed copy.
 
-Audience
-Shown to the CLIENT. Professional, confident, persuasive. Every slide proves we understand their business.
+Rules
+- Produce EXACTLY 8 slides in the order below.
+- Every slide: a punchy title, a bold one-line headline, 3-4 bullet points (full sentences), brief speaker notes (1-2 sentences for the presenter).
+- Tone: confident, direct, client-centric. No agency jargon. No fluff.
+- Make it specific to THIS client — reference their business, their competitors, their market.
 
-Tone: confident, clear, strategic, client-centric, no jargon.
-
-Output Rules
-- Produce EXACTLY 8 slides — no more, no fewer.
-- Every slide needs a compelling headline, 2-4 bullet points (full sentences), and brief speaker notes.
-- layout_hint: one of "cover", "two-column", "full-bleed", "icon-grid", "quote", "timeline", "cta"
-
-Mandatory Slide Order
-1. Cover — deck title + client name tagline
-2. What We Heard From You — key onboarding findings
-3. The Market Opportunity — size, trends, timing
-4. Your Competitive Landscape — top 3 competitors, where you win
-5. Who You're Talking To — ICP summary
-6. Your Strategic Positioning — our recommendation
-7. Content & Channel Strategy — pillars + platform focus
-8. Next Steps — 3 clear actions with owners
+Slide Order (mandatory)
+1. Cover — inspiring deck title + one-line client positioning statement
+2. What We Heard From You — 3-4 key onboarding findings, what they told us
+3. The Market Opportunity — size, timing, tailwinds specific to their sector
+4. Your Competitive Landscape — 3 competitors, where this client wins
+5. Who You're Really Talking To — ICP: who they are, what they care about, what triggers them
+6. Your Strategic Positioning — our recommendation for how they should position
+7. Content & Channel Strategy — the 3 content pillars and where to publish them
+8. Next Steps — 3 concrete actions, each with a clear owner
 `;
 
+// Simplified slide — only what Gemini writes. Visual layout is handled by pptxgenjs templates.
 export interface PresentationSlide {
   slide_number: number;
   slide_title: string;
-  slide_type: 'cover' | 'section' | 'content' | 'quote' | 'cta' | 'list';
   headline: string;
-  body_text: string;
   bullet_points: string[];
   speaker_notes: string;
-  layout_hint: string;
 }
 
 export interface PresentationResponse {
@@ -348,31 +347,6 @@ export interface PresentationResponse {
   tokensIn: number;
   tokensOut: number;
 }
-
-const PRESENTATION_RESPONSE_SCHEMA: Schema = {
-  type: Type.OBJECT,
-  properties: {
-    client_name: { type: Type.STRING },
-    deck_title: { type: Type.STRING },
-    slides: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          slide_number: { type: Type.NUMBER },
-          slide_title: { type: Type.STRING },
-          slide_type: { type: Type.STRING },
-          headline: { type: Type.STRING },
-          body_text: { type: Type.STRING },
-          bullet_points: { type: Type.ARRAY, items: { type: Type.STRING } },
-          speaker_notes: { type: Type.STRING },
-          layout_hint: { type: Type.STRING },
-        },
-      },
-    },
-  },
-  required: ['client_name', 'deck_title', 'slides'],
-};
 
 /** Safely coerce any value to an array — handles strings or unexpected types from Gemini. */
 function safeArr(val: unknown): any[] {
@@ -427,28 +401,25 @@ export async function generatePresentationPack(
 
   const prompt = `Client Name: ${clientName}
 
-Research Foundation Pack (key fields):
+Research Foundation Pack:
 ${JSON.stringify(compressedPack, null, 2)}
 
 Knowledge Base Summary:
 ${kbSummary}
 
-Produce exactly 8 slides following the mandatory slide order in your instructions.
+Write the slide copy for exactly 8 slides following the mandatory slide order.
 
-Return ONLY a JSON object in this exact shape — no extra text:
+Return ONLY valid JSON — no markdown, no explanation — in this exact shape:
 {
-  "client_name": string,
-  "deck_title": string,
+  "client_name": "${clientName}",
+  "deck_title": "...",
   "slides": [
     {
-      "slide_number": number,
-      "slide_title": string,
-      "slide_type": "cover"|"section"|"content"|"quote"|"cta"|"list",
-      "headline": string,
-      "body_text": string,
-      "bullet_points": string[],
-      "speaker_notes": string,
-      "layout_hint": string
+      "slide_number": 1,
+      "slide_title": "...",
+      "headline": "...",
+      "bullet_points": ["...", "...", "..."],
+      "speaker_notes": "..."
     }
   ]
 }`;

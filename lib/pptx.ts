@@ -77,9 +77,10 @@ function buildCoverSlide(pptx: PptxGenJS, s: PresentationSlide, deckTitle: strin
     fontFace: B.font_title,
     breakLine: true, valign: 'top',
   });
-  // Body / subtitle
-  if (s.body_text) {
-    slide.addText(s.body_text, {
+  // Subtitle — use first bullet point if available
+  const subtitle = Array.isArray(s.bullet_points) && s.bullet_points[0] ? s.bullet_points[0] : '';
+  if (subtitle) {
+    slide.addText(subtitle, {
       x: 0.5, y: 5.0, w: 9, h: 0.9,
       fontSize: 15, color: 'c4bfef',
       fontFace: B.font_body,
@@ -100,8 +101,8 @@ function buildSectionDivider(pptx: PptxGenJS, s: PresentationSlide, idx: number,
     fontSize: 40, bold: true, color: B.white,
     fontFace: B.font_title, valign: 'middle',
   });
-  if (s.body_text) {
-    slide.addText(s.body_text, {
+  if (s.headline) {
+    slide.addText(s.headline, {
       x: 0.5, y: 5.0, w: 10, h: 0.8,
       fontSize: 16, color: 'c4bfef', fontFace: B.font_body,
     });
@@ -111,7 +112,6 @@ function buildSectionDivider(pptx: PptxGenJS, s: PresentationSlide, idx: number,
 
 function buildContentSlide(pptx: PptxGenJS, s: PresentationSlide, idx: number, total: number) {
   const slide = pptx.addSlide();
-  // White background
   slide.addShape('rect' as any, {
     x: 0, y: 0, w: B.slide_width_inches, h: B.slide_height_inches,
     fill: { color: B.white }, line: { color: B.white },
@@ -123,14 +123,12 @@ function buildContentSlide(pptx: PptxGenJS, s: PresentationSlide, idx: number, t
     x: 0.3, y: 0, w: B.slide_width_inches - 0.3, h: 1.15,
     fill: { color: B.primary }, line: { color: B.primary },
   });
-  // Slide title in header
   slide.addText(s.slide_title, {
     x: 0.5, y: 0.1, w: 11.5, h: 0.95,
     fontSize: 22, bold: true, color: B.white,
     fontFace: B.font_title, valign: 'middle',
   });
 
-  // Headline
   if (s.headline) {
     slide.addText(s.headline, {
       x: 0.5, y: 1.25, w: 11.5, h: 0.7,
@@ -139,60 +137,19 @@ function buildContentSlide(pptx: PptxGenJS, s: PresentationSlide, idx: number, t
     });
   }
 
-  const hasPoints = s.bullet_points?.length > 0;
-  const hasBody = !!s.body_text;
   const contentY = s.headline ? 2.1 : 1.3;
+  const bullets = Array.isArray(s.bullet_points) ? s.bullet_points : [];
 
-  if (hasPoints) {
-    const rows = s.bullet_points.slice(0, 8).map((pt) => [
-      { text: '▸ ', options: { color: B.primary, bold: true, fontSize: 13 } },
-      { text: pt, options: { color: B.black, fontSize: 13 } },
-    ]);
-    s.bullet_points.slice(0, 8).forEach((pt, i) => {
-      slide.addText([
-        { text: '▸  ', options: { color: B.primary, bold: true } },
-        { text: pt, options: { color: B.black } },
-      ], {
-        x: 0.55, y: contentY + i * 0.55, w: 11.5, h: 0.52,
-        fontSize: 13, fontFace: B.font_body,
-      });
+  bullets.slice(0, 6).forEach((pt, i) => {
+    slide.addText([
+      { text: '▸  ', options: { color: B.primary, bold: true } },
+      { text: pt, options: { color: B.black } },
+    ], {
+      x: 0.55, y: contentY + i * 0.58, w: 11.5, h: 0.54,
+      fontSize: 13, fontFace: B.font_body,
     });
-  } else if (hasBody) {
-    slide.addText(s.body_text, {
-      x: 0.55, y: contentY, w: 11.5, h: 4.5,
-      fontSize: 14, color: B.black,
-      fontFace: B.font_body, valign: 'top',
-      breakLine: true,
-    });
-  }
+  });
 
-  addFooter(slide, idx, total);
-}
-
-function buildQuoteSlide(pptx: PptxGenJS, s: PresentationSlide, idx: number, total: number) {
-  const slide = pptx.addSlide();
-  slide.addShape('rect' as any, {
-    x: 0, y: 0, w: B.slide_width_inches, h: B.slide_height_inches,
-    fill: { color: B.grey_light }, line: { color: B.grey_light },
-  });
-  addYellowAccent(slide);
-  // Opening quote mark
-  slide.addText('\u201C', {
-    x: 0.5, y: 0.8, w: 2, h: 2,
-    fontSize: 96, color: B.primary, fontFace: B.font_title, bold: true,
-  });
-  slide.addText(s.headline || s.body_text, {
-    x: 0.7, y: 1.8, w: 11, h: 3.2,
-    fontSize: 26, bold: true, color: B.black,
-    fontFace: B.font_title, valign: 'middle',
-    breakLine: true,
-  });
-  if (s.body_text && s.headline) {
-    slide.addText(`\u2014 ${s.body_text}`, {
-      x: 0.7, y: 5.5, w: 11, h: 0.55,
-      fontSize: 13, color: B.text_muted, fontFace: B.font_body, italic: true,
-    });
-  }
   addFooter(slide, idx, total);
 }
 
@@ -212,7 +169,8 @@ function buildCtaSlide(pptx: PptxGenJS, s: PresentationSlide, idx: number, total
     fontSize: 36, bold: true, color: B.white,
     fontFace: B.font_title, breakLine: true,
   });
-  s.bullet_points?.slice(0, 5).forEach((pt, i) => {
+  const bullets = Array.isArray(s.bullet_points) ? s.bullet_points : [];
+  bullets.slice(0, 5).forEach((pt, i) => {
     slide.addText([
       { text: '\u2022  ', options: { color: B.yellow, bold: true } },
       { text: pt, options: { color: B.white } },
@@ -239,25 +197,23 @@ export async function renderPptxFromSlides(
 
   const total = slides.length;
 
+  // Template-driven layout — Gemini writes copy, pptxgenjs decides visual treatment.
+  // Slide 1 = Cover, Slide 8 (or last) = CTA, midpoint = section break, all others = content.
+  const lastIdx = total;
+
   for (let i = 0; i < slides.length; i++) {
     const s = slides[i];
-    const idx = i + 1;
+    const num = s.slide_number ?? i + 1;
 
-    switch (s.slide_type) {
-      case 'cover':
-        buildCoverSlide(pptx, s, deckTitle, clientName, total);
-        break;
-      case 'section':
-        buildSectionDivider(pptx, s, idx, total);
-        break;
-      case 'quote':
-        buildQuoteSlide(pptx, s, idx, total);
-        break;
-      case 'cta':
-        buildCtaSlide(pptx, s, idx, total);
-        break;
-      default:
-        buildContentSlide(pptx, s, idx, total);
+    if (num === 1) {
+      buildCoverSlide(pptx, s, deckTitle, clientName, total);
+    } else if (num === lastIdx) {
+      buildCtaSlide(pptx, s, num, total);
+    } else if (num === Math.ceil(total / 2)) {
+      // Mid-deck section break adds visual rhythm
+      buildSectionDivider(pptx, s, num, total);
+    } else {
+      buildContentSlide(pptx, s, num, total);
     }
   }
 
