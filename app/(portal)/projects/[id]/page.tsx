@@ -441,6 +441,19 @@ export default function ProjectDetailPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Auto-select furthest completed step once data loads.
+  // MUST be before any early returns to satisfy Rules of Hooks.
+  useEffect(() => {
+    if (loading) return;
+    const hasPres = artifacts.some(a => a.type === 'presentation');
+    const hasKbFiles = artifacts.some(a => a.type === 'kb_file');
+    const hasRes = artifacts.some(a => a.type === 'research_foundation_pack_json');
+    if (hasPres) setActiveStep('presentation');
+    else if (hasKbFiles) setActiveStep('kb');
+    else if (hasRes) setActiveStep('research');
+    else setActiveStep('onboarding');
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const findArtifact = (type: string) => artifacts.find(a => a.type === type);
 
   const runAgent = async (agentType: string) => {
@@ -534,15 +547,6 @@ export default function ProjectDetailPage() {
   const hasKb = kbArtifacts.length > 0;
   const presentationArtifact = findArtifact('presentation');
   const hasPresentation = !!presentationArtifact;
-
-  // Auto-select the furthest completed step (only on first load)
-  useEffect(() => {
-    if (loading) return;
-    if (hasPresentation) setActiveStep('presentation');
-    else if (hasKb) setActiveStep('kb');
-    else if (hasResearch) setActiveStep('research');
-    else setActiveStep('onboarding');
-  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="min-h-screen bg-gray-50">
