@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabase';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import type { ResearchFoundationPackJson } from '@/lib/gemini';
+import type { ResearchFoundationPackJson, ContentPost, ContentPlanJson } from '@/lib/gemini';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -388,6 +388,312 @@ function ResearchViewer({ pack, markdown }: { pack: ResearchFoundationPackJson; 
   );
 }
 
+// ─── Content Planner Viewer ─────────────────────────────────────────────────
+
+const CHANNEL_ICONS: Record<string, string> = {
+  instagram: '📸',
+  linkedin: '💼',
+  tiktok: '🎵',
+  facebook: '👥',
+  youtube: '▶️',
+  x: '𝕏',
+  twitter: '𝕏',
+};
+
+const PILLAR_COLORS: Record<string, string> = {
+  education: 'bg-blue-100 text-blue-800',
+  authority: 'bg-blue-100 text-blue-800',
+  social_proof: 'bg-green-100 text-green-800',
+  results: 'bg-green-100 text-green-800',
+  behind_scenes: 'bg-orange-100 text-orange-800',
+  authenticity: 'bg-orange-100 text-orange-800',
+  conversion: 'bg-red-100 text-red-800',
+  promotional: 'bg-red-100 text-red-800',
+  entertainment: 'bg-pink-100 text-pink-800',
+  viral: 'bg-pink-100 text-pink-800',
+};
+
+function getPillarColor(pillar: string) {
+  const key = pillar.toLowerCase().replace(/[^a-z_]/g, '_');
+  return PILLAR_COLORS[key] ?? 'bg-gray-100 text-gray-700';
+}
+
+function PostCard({ post }: { post: ContentPost }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 hover:shadow-md transition-shadow">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-lg" title={post.channel}>{CHANNEL_ICONS[post.channel] ?? '📣'}</span>
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{post.channel}</span>
+          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-medium">{post.format}</span>
+          <span className={`text-xs px-2 py-0.5 rounded font-medium ${getPillarColor(post.content_pillar)}`}>
+            {post.content_pillar}
+          </span>
+        </div>
+        <span className="text-xs text-gray-400 flex-shrink-0 font-medium">{post.day_of_week}</span>
+      </div>
+
+      {/* Hook */}
+      <p className="text-sm font-bold text-gray-900 mb-2 leading-snug">"{post.hook}"</p>
+
+      {/* Caption preview */}
+      <p className={`text-xs text-gray-600 mb-3 whitespace-pre-line leading-relaxed ${expanded ? '' : 'line-clamp-3'}`}>
+        {post.caption}
+      </p>
+
+      {/* Hashtags */}
+      {post.hashtags?.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-3">
+          {post.hashtags.slice(0, expanded ? undefined : 5).map((tag, i) => (
+            <span key={i} className="text-xs text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">{tag}</span>
+          ))}
+          {!expanded && post.hashtags.length > 5 && (
+            <span className="text-xs text-gray-400">+{post.hashtags.length - 5} more</span>
+          )}
+        </div>
+      )}
+
+      {/* CTA */}
+      <div className="text-xs text-gray-700 mb-2">
+        <span className="font-semibold text-purple-700">CTA: </span>{post.cta}
+      </div>
+
+      {/* Growth tactic */}
+      <div className="text-xs text-gray-500 mb-3">
+        <span className="font-semibold">Growth: </span>{post.growth_tactic}
+      </div>
+
+      {/* Visual brief (expanded only) */}
+      {expanded && (
+        <div className="mt-3 p-3 bg-gray-50 rounded border border-gray-200">
+          <div className="text-xs font-bold text-gray-500 uppercase mb-1">Visual Brief</div>
+          <p className="text-xs text-gray-700 whitespace-pre-line">{post.visual_brief}</p>
+          {post.production_notes && (
+            <>
+              <div className="text-xs font-bold text-gray-500 uppercase mt-2 mb-1">Production Notes</div>
+              <p className="text-xs text-gray-600 italic">{post.production_notes}</p>
+            </>
+          )}
+        </div>
+      )}
+
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="mt-2 text-xs text-purple-600 hover:underline font-medium"
+      >
+        {expanded ? '↑ Collapse' : '↓ Full brief + visual'}
+      </button>
+    </div>
+  );
+}
+
+function ContentPlanViewer({ plan, markdown, clientName }: { plan: ContentPlanJson; markdown: string; clientName: string }) {
+  const [activeWeek, setActiveWeek] = useState<number>(1);
+  const [filterChannel, setFilterChannel] = useState<string>('all');
+  const [view, setView] = useState<'calendar' | 'strategy' | 'markdown'>('calendar');
+
+  const channels = Array.from(new Set(plan.posts.map(p => p.channel)));
+  const filtered = plan.posts.filter(p =>
+    p.week === activeWeek && (filterChannel === 'all' || p.channel === filterChannel)
+  );
+
+  const postsByWeek = [1, 2, 3, 4].map(w => plan.posts.filter(p => p.week === w));
+
+  const handleDownloadMd = () => {
+    const blob = new Blob([markdown], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${clientName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-content-calendar.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadJson = () => {
+    const blob = new Blob([JSON.stringify(plan, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${clientName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-content-calendar.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+        <div className="flex items-center gap-4">
+          <h3 className="font-bold text-lg text-gray-900">Content Calendar</h3>
+          <span className="bg-purple-100 text-purple-800 text-xs font-bold px-2 py-1 rounded-full">
+            {plan.posts.length} posts
+          </span>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleDownloadMd}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
+          >
+            ↓ Markdown
+          </button>
+          <button
+            onClick={handleDownloadJson}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 rounded hover:bg-black"
+          >
+            ↓ JSON
+          </button>
+        </div>
+      </div>
+
+      {/* View tabs */}
+      <div className="flex border-b border-gray-200 bg-white px-2">
+        {(['calendar', 'strategy', 'markdown'] as const).map(v => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 whitespace-nowrap capitalize ${
+              view === v
+                ? 'border-purple-600 text-purple-600 bg-purple-50'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            {v === 'calendar' ? '📅 Calendar' : v === 'strategy' ? '🎯 Strategy' : '📄 Markdown'}
+          </button>
+        ))}
+      </div>
+
+      <div className="p-6 bg-gray-50 min-h-[500px]">
+
+        {/* CALENDAR VIEW */}
+        {view === 'calendar' && (
+          <>
+            {/* Week selector + channel filter */}
+            <div className="flex flex-wrap items-center gap-3 mb-6">
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden bg-white">
+                {[1, 2, 3, 4].map(w => (
+                  <button
+                    key={w}
+                    onClick={() => setActiveWeek(w)}
+                    className={`px-4 py-2 text-sm font-medium transition-colors ${
+                      activeWeek === w
+                        ? 'bg-purple-700 text-white'
+                        : 'text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    Week {w}
+                    <span className="ml-1.5 text-xs opacity-70">({postsByWeek[w - 1].length})</span>
+                  </button>
+                ))}
+              </div>
+              <select
+                value={filterChannel}
+                onChange={e => setFilterChannel(e.target.value)}
+                className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-300"
+              >
+                <option value="all">All channels</option>
+                {channels.map(c => (
+                  <option key={c} value={c}>{CHANNEL_ICONS[c] ?? '📣'} {c}</option>
+                ))}
+              </select>
+            </div>
+
+            {filtered.length === 0 ? (
+              <p className="text-gray-500 text-sm">No posts for this week/channel combination.</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {filtered.map(post => <PostCard key={post.id} post={post} />)}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* STRATEGY VIEW */}
+        {view === 'strategy' && plan.strategy_overview && (
+          <div className="max-w-4xl mx-auto space-y-6">
+            {/* Goal */}
+            <div className="bg-purple-700 text-white p-6 rounded-lg">
+              <div className="text-xs font-semibold text-yellow-300 uppercase tracking-wider mb-2">Monthly Goal</div>
+              <p className="text-xl font-bold">{plan.strategy_overview.monthly_goal}</p>
+              <p className="text-sm text-purple-200 mt-2">{plan.strategy_overview.positioning_theme}</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Channels */}
+              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                <h3 className="font-bold text-gray-900 mb-3">Channel Priorities</h3>
+                <div className="space-y-2">
+                  {toArray(plan.strategy_overview.channel_priorities).map((ch, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm text-gray-700">
+                      <span className="font-bold text-purple-600 w-5">{i + 1}.</span>
+                      <span className="text-base">{CHANNEL_ICONS[ch.toLowerCase()] ?? '📣'}</span>
+                      <span className="capitalize">{ch}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Success metrics */}
+              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                <h3 className="font-bold text-gray-900 mb-3">Success Metrics</h3>
+                <ul className="space-y-2">
+                  {toArray(plan.strategy_overview.success_metrics).map((m, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                      <span className="text-green-500 mt-0.5 flex-shrink-0">✓</span>{m}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            {/* Key themes */}
+            <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+              <h3 className="font-bold text-gray-900 mb-3">Key Themes</h3>
+              <div className="flex flex-wrap gap-2">
+                {toArray(plan.strategy_overview.key_themes).map((t, i) => (
+                  <span key={i} className="px-3 py-1.5 bg-gray-100 text-gray-800 rounded-md text-sm border border-gray-200">{t}</span>
+                ))}
+              </div>
+            </div>
+
+            {/* Growth levers */}
+            <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+              <h3 className="font-bold text-gray-900 mb-3">Growth Levers</h3>
+              <div className="space-y-2">
+                {toArray(plan.strategy_overview.growth_levers).map((g, i) => (
+                  <div key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                    <span className="text-yellow-500 mt-0.5 flex-shrink-0">⚡</span>{g}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {plan.strategy_overview.content_mix_rationale && (
+              <div className="bg-yellow-50 border border-yellow-200 p-4 rounded text-sm text-yellow-900">
+                <strong>Content Mix Rationale: </strong>{plan.strategy_overview.content_mix_rationale}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* MARKDOWN VIEW */}
+        {view === 'markdown' && (
+          <div className="max-w-5xl mx-auto">
+            <pre className="font-mono text-xs text-gray-800 whitespace-pre-wrap break-words bg-white p-6 rounded border border-gray-200 shadow-inner overflow-auto max-h-[700px]">
+              {markdown}
+            </pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Agent Pipeline Status ──────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<string, string> = {
@@ -403,6 +709,7 @@ const AGENT_LABELS: Record<string, string> = {
   research: 'Research Agent',
   kb_packager: 'KB Builder Agent',
   presentation: 'Presentation Agent',
+  content_planner: 'Content Planner Agent',
 };
 
 // ─── Page ───────────────────────────────────────────────────────────────────
@@ -419,7 +726,8 @@ export default function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [runningAgent, setRunningAgent] = useState<string | null>(null);
   const [agentStatus, setAgentStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [activeStep, setActiveStep] = useState<'onboarding' | 'research' | 'kb' | 'presentation'>('research');
+  const [activeStep, setActiveStep] = useState<'onboarding' | 'research' | 'kb' | 'presentation' | 'content'>('research');
+  const [selectedChannels, setSelectedChannels] = useState<string[]>(['instagram', 'linkedin']);
   const [runningSeconds, setRunningSeconds] = useState(0);
 
   const loadData = useCallback(async () => {
@@ -453,10 +761,12 @@ export default function ProjectDetailPage() {
   // MUST be before any early returns to satisfy Rules of Hooks.
   useEffect(() => {
     if (loading) return;
+    const hasContent = artifacts.some(a => a.type === 'content_plan_json');
     const hasPres = artifacts.some(a => a.type === 'presentation');
     const hasKbFiles = artifacts.some(a => a.type === 'kb_file');
     const hasRes = artifacts.some(a => a.type === 'research_foundation_pack_json');
-    if (hasPres) setActiveStep('presentation');
+    if (hasContent) setActiveStep('content');
+    else if (hasPres) setActiveStep('presentation');
     else if (hasKbFiles) setActiveStep('kb');
     else if (hasRes) setActiveStep('research');
     else setActiveStep('onboarding');
@@ -495,6 +805,14 @@ export default function ProjectDetailPage() {
         return;
       }
       endpoint = '/api/workers/presentation';
+    } else if (agentType === 'content_planner') {
+      inputArtifact = findArtifact('research_foundation_pack_json');
+      if (!inputArtifact) {
+        setAgentStatus({ message: 'Run the Research Agent first — it produces the input for the Content Planner.', type: 'error' });
+        setRunningAgent(null);
+        return;
+      }
+      endpoint = '/api/workers/content-planner';
     } else {
       setAgentStatus({ message: `Agent "${agentType}" is not yet available.`, type: 'error' });
       setRunningAgent(null);
@@ -515,10 +833,18 @@ export default function ProjectDetailPage() {
 
       // Fire the worker — don't await, let it run on the server.
       // We'll learn it's done via polling below, not from the HTTP response.
+      const workerBody: Record<string, unknown> = {
+        project_id: projectId,
+        input_artifact_id: inputArtifact.id,
+        job_id: jobId,
+      };
+      if (agentType === 'content_planner') {
+        workerBody.channels = selectedChannels;
+      }
       fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: projectId, input_artifact_id: inputArtifact.id, job_id: jobId }),
+        body: JSON.stringify(workerBody),
       }).catch(() => {}); // errors are surfaced via job status polling
 
       // Poll Supabase every 5 s — stop when done or failed
@@ -577,6 +903,17 @@ export default function ProjectDetailPage() {
   const hasKb = kbArtifacts.length > 0;
   const presentationArtifact = findArtifact('presentation');
   const hasPresentation = !!presentationArtifact;
+  const contentPlanJsonArtifact = findArtifact('content_plan_json');
+  const contentPlanMdArtifact = findArtifact('content_plan_md');
+  const hasContentPlan = !!contentPlanJsonArtifact;
+
+  const CHANNEL_OPTIONS = ['instagram', 'linkedin', 'tiktok', 'facebook', 'youtube', 'x'];
+
+  const toggleChannel = (ch: string) => {
+    setSelectedChannels(prev =>
+      prev.includes(ch) ? (prev.length > 1 ? prev.filter(c => c !== ch) : prev) : [...prev, ch]
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -723,6 +1060,61 @@ export default function ProjectDetailPage() {
                   className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
                   {runningAgent === 'presentation' ? `Building… ${runningSeconds}s` : 'Run Presentation Agent'}
+                </button>
+              )}
+            </div>
+
+            <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
+
+            {/* Step 5 - Content Planner */}
+            <div
+              onClick={() => setActiveStep('content')}
+              className={`flex-1 min-w-[200px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                activeStep === 'content'
+                  ? 'border-purple-600 bg-purple-50 shadow-md ring-2 ring-purple-200'
+                  : hasContentPlan ? 'border-green-400 bg-green-50 hover:shadow' : 'border-gray-200 bg-white hover:shadow'
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xl">{hasContentPlan ? '✅' : '📅'}</span>
+                <h3 className="font-semibold text-sm">5. Content Plan</h3>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">
+                {hasContentPlan ? `${contentPlanJsonArtifact?.content_json?.posts?.length ?? 0} posts planned` : '30-day social calendar'}
+              </p>
+              {/* Channel picker */}
+              <div className="flex flex-wrap gap-1 mb-2" onClick={(e) => e.stopPropagation()}>
+                {CHANNEL_OPTIONS.map(ch => (
+                  <button
+                    key={ch}
+                    onClick={() => toggleChannel(ch)}
+                    className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${
+                      selectedChannels.includes(ch)
+                        ? 'bg-purple-700 text-white border-purple-700'
+                        : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+                    }`}
+                  >
+                    {CHANNEL_ICONS[ch]} {ch}
+                  </button>
+                ))}
+              </div>
+              {hasContentPlan ? (
+                <div className="flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    onClick={() => runAgent('content_planner')}
+                    disabled={runningAgent !== null}
+                    className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  >
+                    {runningAgent === 'content_planner' ? `Planning… ${runningSeconds}s` : 'Re-generate'}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={(e) => { e.stopPropagation(); runAgent('content_planner'); }}
+                  disabled={runningAgent !== null || !hasResearch}
+                  className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  {runningAgent === 'content_planner' ? `Planning… ${runningSeconds}s` : 'Run Content Planner'}
                 </button>
               )}
             </div>
@@ -888,6 +1280,23 @@ export default function ProjectDetailPage() {
         {activeStep === 'presentation' && !hasPresentation && (
           <section>
             <p className="text-gray-500 text-sm">No presentation yet. Run the Presentation Agent after Research and KB Builder complete.</p>
+          </section>
+        )}
+
+        {/* Content Planner output */}
+        {activeStep === 'content' && hasContentPlan && contentPlanJsonArtifact?.content_json && (
+          <section>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Content Calendar</h2>
+            <ContentPlanViewer
+              plan={contentPlanJsonArtifact.content_json as ContentPlanJson}
+              markdown={contentPlanMdArtifact?.content ?? ''}
+              clientName={project.client_name}
+            />
+          </section>
+        )}
+        {activeStep === 'content' && !hasContentPlan && (
+          <section>
+            <p className="text-gray-500 text-sm">No content plan yet. Select channels above and run the Content Planner Agent.</p>
           </section>
         )}
 

@@ -261,11 +261,15 @@ export interface ResearchResponse {
 }
 
 // ─── Main function ─────────────────────────────────────────────────────────
-export async function generateResearchPack(onboardingData: string): Promise<ResearchResponse> {
+export async function generateResearchPack(onboardingData: string, language = 'pt'): Promise<ResearchResponse> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY environment variable is required');
   }
+
+  const langDirective = language === 'en'
+    ? 'OUTPUT LANGUAGE: Write ALL output in UK English. Use British spelling and vocabulary throughout.'
+    : 'OUTPUT LANGUAGE: Write ALL output in European Portuguese (pt-PT). Use formal pt-PT vocabulary and spelling — never Brazilian Portuguese.';
 
   const ai = new GoogleGenAI({ apiKey });
 
@@ -282,7 +286,7 @@ export async function generateResearchPack(onboardingData: string): Promise<Rese
       },
     ],
     config: {
-      systemInstruction: RESEARCH_SYSTEM_INSTRUCTION,
+      systemInstruction: `${langDirective}\n\n${RESEARCH_SYSTEM_INSTRUCTION}`,
       responseMimeType: 'application/json',
       responseSchema: RESEARCH_RESPONSE_SCHEMA,
       temperature: 0.3,
@@ -297,6 +301,224 @@ export async function generateResearchPack(onboardingData: string): Promise<Rese
 
   const parsed = JSON.parse(text) as Omit<ResearchResponse, 'tokensIn' | 'tokensOut'>;
 
+  const tokensIn = (response as any).usageMetadata?.promptTokenCount ?? 0;
+  const tokensOut = (response as any).usageMetadata?.candidatesTokenCount ?? 0;
+
+  return { ...parsed, tokensIn, tokensOut };
+}
+
+// ─── Content Planner Agent ─────────────────────────────────────────────────
+
+const CONTENT_PLANNER_SYSTEM_INSTRUCTION = `
+You are the Lead Content Strategist and Growth Hacker at Flow Productions — a performance-first creative agency. You think like a CMO, execute like a content creator, and obsess over metrics that actually move the needle.
+
+Your role: Transform a client research pack into a data-driven, platform-native 30-day content calendar that drives real growth. Every post must be designed to stop the scroll, earn engagement, and build measurable business results.
+
+━━━ GROWTH HACKER MINDSET (Feb 2026) ━━━
+
+ALGORITHM INTELLIGENCE:
+- Instagram: rewards saves and shares exponentially more than likes. Carousels (7-12 slides) drive the highest save rate. Reels with 80%+ watch time completion get pushed to Explore.
+- LinkedIn: rewards posts with 80+ word comments and dwell time over 30s. Text posts with strategic line breaks outperform links 3:1. Thought leadership from founders > brand page posts.
+- TikTok: watch time completion is everything. Raw, authentic content outperforms polished brand video. First 0.5 seconds determines if the algorithm tests the video further.
+- Instagram Stories: polls and question stickers signal retention to the algorithm — use them on 40% of stories.
+- YouTube Shorts: thumbnail CTR is the primary ranking signal. Shorts feed the long-form channel flywheel.
+
+HOOK OBSESSION:
+The first 3 words of a caption and the first 0.5 seconds of video determine reach. Every post needs a scroll-stopper hook. Use:
+- Counter-intuitive statements ("Most agencies are wrong about X")
+- Specific numbers ("7 reasons why your Instagram reach died in 2026")
+- Curiosity gaps ("What nobody tells you about Y")
+- Pattern interrupts (start mid-story, never with "I" or the brand name)
+- Bold claims backed by research ("X increased sales by 47% doing this one thing")
+
+SOCIAL SEO (2026):
+Every caption's first sentence must contain the primary keyword for in-app search discoverability. Instagram, TikTok, and LinkedIn all have search bars that now rival Google for product/service discovery.
+
+CONTENT PILLARS (proven mix for B2B/B2C creative agencies):
+- 40% Education & Authority (builds trust, highest save rate, positions client as expert)
+- 25% Social Proof & Results (case studies, testimonials, before/after — drives conversion)
+- 20% Behind-the-Scenes & Authenticity (builds community loyalty, shows process/people)
+- 10% Direct Conversion (offers, services, CTAs — keep low frequency to avoid ad fatigue)
+- 5% Entertainment & Virality (trending formats, humor, challenges — expands reach)
+
+GROWTH TACTICS TO USE:
+- Collab posts: tag complementary brands for shared audience reach
+- Content series: recurring formats build loyal followers who come back for more
+- "Save this post" CTAs outperform "click the link" by 10x for algorithm boost
+- Comment bait: end posts with a genuine question that requires a specific answer
+- First-mover on new features: algorithms always reward early adopters of new formats
+- Repurposing waterfall: one LinkedIn article → 3 carousels → 6 short clips → 12 stories
+- Strategic hashtag stack: 3 niche (under 500k) + 3 mid-tier (500k-5M) + 1 broad (5M+)
+
+━━━ OUTPUT REQUIREMENTS ━━━
+
+Produce exactly 30 posts for a full calendar month, covering all active channels.
+Distribute evenly: minimum 2 posts per week per channel, maximum 2 posts per day total.
+
+EVERY POST MUST INCLUDE:
+- hook: The exact first line. Not a description — the actual copy. Must stop scrolling.
+- caption: Complete, publish-ready copy. Not "write about X" — actual text with formatting (line breaks, emoji if appropriate for channel), sign-off, and hashtags.
+- hashtags: Curated array of 8-15 hashtags with the right mix (niche, mid, broad).
+- cta: Specific action. "Save this", "Comment 'YES' if you agree", "Tag your team", "DM us 'PLAN'".
+- visual_brief: Specific enough for a designer or video editor to execute without any clarification. Include: format specs, colors, text overlays, photography style, reference aesthetic.
+- growth_tactic: The specific algorithm or growth lever being used for this post.
+- production_notes: Any special instructions (record on-location, use client's voice, requires client approval, etc.).
+
+FORMAT OPTIONS BY CHANNEL:
+- Instagram: carousel (7-12 slides), reel (15-60s), static_image, story_sequence, broadcast_channel
+- LinkedIn: text_post, article, document_post (carousel PDF), video, poll
+- TikTok: short_video (15-30s), long_video (60-180s), stitch, duet
+- Facebook: video, image_post, reel, story
+- YouTube: short (60s), long_video (5-15min)
+- X/Twitter: thread, single_tweet, quote_tweet
+
+OUTPUT LANGUAGE is specified in the system instruction header — write ALL copy in that language.
+`;
+
+const CONTENT_PLANNER_RESPONSE_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    strategy_overview: {
+      type: Type.OBJECT,
+      properties: {
+        monthly_goal: { type: Type.STRING },
+        positioning_theme: { type: Type.STRING },
+        channel_priorities: { type: Type.ARRAY, items: { type: Type.STRING } },
+        content_mix_rationale: { type: Type.STRING },
+        key_themes: { type: Type.ARRAY, items: { type: Type.STRING } },
+        growth_levers: { type: Type.ARRAY, items: { type: Type.STRING } },
+        success_metrics: { type: Type.ARRAY, items: { type: Type.STRING } },
+        posting_frequency_note: { type: Type.STRING },
+      },
+    },
+    posts: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          id: { type: Type.STRING },
+          week: { type: Type.INTEGER },
+          day_of_week: { type: Type.STRING },
+          channel: { type: Type.STRING },
+          format: { type: Type.STRING },
+          content_pillar: { type: Type.STRING },
+          series_name: { type: Type.STRING },
+          hook: { type: Type.STRING },
+          caption: { type: Type.STRING },
+          hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+          cta: { type: Type.STRING },
+          visual_brief: { type: Type.STRING },
+          growth_tactic: { type: Type.STRING },
+          production_notes: { type: Type.STRING },
+        },
+        required: ['id', 'week', 'day_of_week', 'channel', 'format', 'content_pillar', 'hook', 'caption', 'hashtags', 'cta', 'visual_brief', 'growth_tactic'],
+      },
+    },
+    calendar_markdown: { type: Type.STRING },
+  },
+  required: ['strategy_overview', 'posts', 'calendar_markdown'],
+};
+
+export interface ContentPost {
+  id: string;
+  week: number;
+  day_of_week: string;
+  channel: string;
+  format: string;
+  content_pillar: string;
+  series_name?: string;
+  hook: string;
+  caption: string;
+  hashtags: string[];
+  cta: string;
+  visual_brief: string;
+  growth_tactic: string;
+  production_notes?: string;
+}
+
+export interface ContentPlanJson {
+  strategy_overview: {
+    monthly_goal: string;
+    positioning_theme: string;
+    channel_priorities: string[];
+    content_mix_rationale: string;
+    key_themes: string[];
+    growth_levers: string[];
+    success_metrics: string[];
+    posting_frequency_note: string;
+  };
+  posts: ContentPost[];
+  calendar_markdown: string;
+}
+
+export interface ContentPlanResponse extends ContentPlanJson {
+  tokensIn: number;
+  tokensOut: number;
+}
+
+export async function generateContentPlan(
+  researchPack: ResearchFoundationPackJson,
+  kbFiles: Array<{ title: string; content: string }>,
+  clientName: string,
+  language = 'pt',
+  channels: string[] = ['instagram', 'linkedin'],
+): Promise<ContentPlanResponse> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY environment variable is required');
+
+  const langDirective = language === 'en'
+    ? 'OUTPUT LANGUAGE: Write ALL post copy, captions, hooks, and CTAs in UK English.'
+    : 'OUTPUT LANGUAGE: Write ALL post copy, captions, hooks, and CTAs in European Portuguese (pt-PT). Use formal pt-PT — never Brazilian Portuguese.';
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  const compressedPack = compressResearchPack(researchPack);
+  const kbSummary = kbFiles
+    .slice(0, 5)
+    .map((f) => `### ${f.title}\n${f.content.slice(0, 1500)}`)
+    .join('\n\n---\n\n');
+
+  const prompt = `Client: ${clientName}
+Active Channels: ${channels.join(', ')}
+Plan Period: Full calendar month (30 posts total)
+
+=== RESEARCH FOUNDATION PACK ===
+${JSON.stringify(compressedPack, null, 2)}
+
+=== KNOWLEDGE BASE EXCERPTS ===
+${kbSummary}
+
+Generate a complete 30-day content calendar. Every post must have publish-ready copy — not placeholders.
+Focus on the active channels listed above. Apply the growth tactics, hooks, and platform-native formats from your expertise.
+The calendar_markdown field should be a full human-readable version of the entire calendar, organized by week.`;
+
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error('Content Planner timed out after 240s. Please try again.')),
+      240_000
+    )
+  );
+
+  const response = await Promise.race([
+    ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: {
+        systemInstruction: `${langDirective}\n\n${CONTENT_PLANNER_SYSTEM_INSTRUCTION}`,
+        responseMimeType: 'application/json',
+        responseSchema: CONTENT_PLANNER_RESPONSE_SCHEMA,
+        temperature: 0.5,
+        tools: [{ googleSearch: {} }],
+      },
+    }),
+    timeoutPromise,
+  ]);
+
+  const text = response.text;
+  if (!text) throw new Error('No response generated from Gemini.');
+
+  const cleaned = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+  const parsed = JSON.parse(cleaned) as Omit<ContentPlanResponse, 'tokensIn' | 'tokensOut'>;
   const tokensIn = (response as any).usageMetadata?.promptTokenCount ?? 0;
   const tokensOut = (response as any).usageMetadata?.candidatesTokenCount ?? 0;
 

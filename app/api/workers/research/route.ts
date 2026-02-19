@@ -31,6 +31,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const supabase = createServiceClient();
+
+    // Fetch project language for the language directive
+    const { data: project } = await supabase
+      .from('projects')
+      .select('language')
+      .eq('id', project_id)
+      .single();
+    const language: string = (project as any)?.language ?? 'pt';
+
     // Load the onboarding report artifact from Supabase
     const inputArtifact = await getArtifact(input_artifact_id);
 
@@ -45,9 +55,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Call the Research Agent (Gemini 3 + Google Search + responseSchema)
-    const result = await generateResearchPack(onboardingReport);
-
-    const supabase = createServiceClient();
+    const result = await generateResearchPack(onboardingReport, language);
 
     // Store JSON artifact
     const { data: jsonArtifact, error: jsonError } = await supabase

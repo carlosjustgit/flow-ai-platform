@@ -45,6 +45,19 @@ export async function POST(request: NextRequest) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('GEMINI_API_KEY environment variable is required');
 
+    const supabase = createServiceClient();
+
+    // Fetch project language
+    const { data: projectRow } = await supabase
+      .from('projects')
+      .select('language')
+      .eq('id', project_id)
+      .single();
+    const language: string = (projectRow as any)?.language ?? 'pt';
+    const langDirective = language === 'en'
+      ? 'OUTPUT LANGUAGE: Write ALL file content in UK English. Use British spelling throughout.'
+      : 'OUTPUT LANGUAGE: Write ALL file content in European Portuguese (pt-PT). Use formal pt-PT vocabulary — never Brazilian Portuguese.';
+
     // Load input artifact (research foundation pack)
     const inputArtifact = await getArtifact(input_artifact_id);
     const researchPack = (inputArtifact as any).content_json || JSON.parse((inputArtifact as any).content || '{}');
@@ -79,7 +92,7 @@ Generate the following knowledge base files:
       model,
       contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
       config: {
-        systemInstruction: 'You are a knowledge base specialist. Create clear, concise knowledge base markdown files from the research foundation pack. Return a JSON array of file objects.',
+        systemInstruction: `${langDirective}\n\nYou are a knowledge base specialist. Create clear, concise knowledge base markdown files from the research foundation pack. Return a JSON array of file objects.`,
         responseMimeType: 'application/json',
         responseSchema: KB_PACKAGER_SCHEMA,
         temperature: 0.2,
@@ -99,7 +112,6 @@ Generate the following knowledge base files:
       throw new Error(`KB files validation failed: ${validation.errors?.join(', ')}`);
     }
 
-    const supabase = createServiceClient();
     const artifactIds: string[] = [];
 
     for (const file of kbFiles) {
