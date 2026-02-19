@@ -5,6 +5,14 @@ import { createSupabaseBrowserClient } from '@/lib/supabase';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import type { ResearchFoundationPackJson, ContentPost, ContentPlanJson } from '@/lib/gemini';
+import {
+  FaInstagram,
+  FaLinkedin,
+  FaTiktok,
+  FaFacebook,
+  FaYoutube,
+  FaXTwitter,
+} from 'react-icons/fa6';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -390,15 +398,37 @@ function ResearchViewer({ pack, markdown }: { pack: ResearchFoundationPackJson; 
 
 // ─── Content Planner Viewer ─────────────────────────────────────────────────
 
-const CHANNEL_ICONS: Record<string, string> = {
-  instagram: '📸',
-  linkedin: '💼',
-  tiktok: '🎵',
-  facebook: '👥',
-  youtube: '▶️',
-  x: '𝕏',
-  twitter: '𝕏',
+const CHANNEL_META: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
+  instagram: { icon: <FaInstagram />, color: '#E1306C', label: 'Instagram' },
+  linkedin:  { icon: <FaLinkedin />,  color: '#0A66C2', label: 'LinkedIn' },
+  tiktok:    { icon: <FaTiktok />,    color: '#010101', label: 'TikTok' },
+  facebook:  { icon: <FaFacebook />,  color: '#1877F2', label: 'Facebook' },
+  youtube:   { icon: <FaYoutube />,   color: '#FF0000', label: 'YouTube' },
+  x:         { icon: <FaXTwitter />,  color: '#000000', label: 'X' },
+  twitter:   { icon: <FaXTwitter />,  color: '#000000', label: 'X' },
 };
+
+function ChannelIcon({ channel, size = 16 }: { channel: string; size?: number }) {
+  const meta = CHANNEL_META[channel.toLowerCase()];
+  if (!meta) return <span className="text-gray-400 text-xs font-bold">{channel.slice(0, 2).toUpperCase()}</span>;
+  return (
+    <span style={{ color: meta.color, fontSize: size }} className="flex items-center">
+      {meta.icon}
+    </span>
+  );
+}
+
+function ChannelBadge({ channel }: { channel: string }) {
+  const meta = CHANNEL_META[channel.toLowerCase()];
+  const label = meta?.label ?? channel;
+  const color = meta?.color ?? '#6b7280';
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border" style={{ borderColor: color + '40', color, background: color + '12' }}>
+      <ChannelIcon channel={channel} size={11} />
+      {label}
+    </span>
+  );
+}
 
 const PILLAR_COLORS: Record<string, string> = {
   education: 'bg-blue-100 text-blue-800',
@@ -425,8 +455,7 @@ function PostCard({ post }: { post: ContentPost }) {
       {/* Header */}
       <div className="flex items-start justify-between gap-2 mb-3">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-lg" title={post.channel}>{CHANNEL_ICONS[post.channel] ?? '📣'}</span>
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{post.channel}</span>
+          <ChannelBadge channel={post.channel} />
           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-medium">{post.format}</span>
           <span className={`text-xs px-2 py-0.5 rounded font-medium ${getPillarColor(post.content_pillar)}`}>
             {post.content_pillar}
@@ -598,7 +627,7 @@ function ContentPlanViewer({ plan, markdown, clientName }: { plan: ContentPlanJs
               >
                 <option value="all">All channels</option>
                 {channels.map(c => (
-                  <option key={c} value={c}>{CHANNEL_ICONS[c] ?? '📣'} {c}</option>
+                  <option key={c} value={c}>{CHANNEL_META[c.toLowerCase()]?.label ?? c}</option>
                 ))}
               </select>
             </div>
@@ -631,8 +660,8 @@ function ContentPlanViewer({ plan, markdown, clientName }: { plan: ContentPlanJs
                   {toArray(plan.strategy_overview.channel_priorities).map((ch, i) => (
                     <div key={i} className="flex items-center gap-2 text-sm text-gray-700">
                       <span className="font-bold text-purple-600 w-5">{i + 1}.</span>
-                      <span className="text-base">{CHANNEL_ICONS[ch.toLowerCase()] ?? '📣'}</span>
-                      <span className="capitalize">{ch}</span>
+                      <ChannelIcon channel={ch} size={16} />
+                      <span className="capitalize">{CHANNEL_META[ch.toLowerCase()]?.label ?? ch}</span>
                     </div>
                   ))}
                 </div>
@@ -907,7 +936,7 @@ export default function ProjectDetailPage() {
   const contentPlanMdArtifact = findArtifact('content_plan_md');
   const hasContentPlan = !!contentPlanJsonArtifact;
 
-  const CHANNEL_OPTIONS = ['instagram', 'linkedin', 'tiktok', 'facebook', 'youtube', 'x'];
+  const CHANNEL_OPTIONS = ['instagram', 'linkedin', 'tiktok', 'facebook', 'youtube', 'x'] as const;
 
   const toggleChannel = (ch: string) => {
     setSelectedChannels(prev =>
@@ -1084,19 +1113,28 @@ export default function ProjectDetailPage() {
               </p>
               {/* Channel picker */}
               <div className="flex flex-wrap gap-1 mb-2" onClick={(e) => e.stopPropagation()}>
-                {CHANNEL_OPTIONS.map(ch => (
-                  <button
-                    key={ch}
-                    onClick={() => toggleChannel(ch)}
-                    className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${
-                      selectedChannels.includes(ch)
-                        ? 'bg-purple-700 text-white border-purple-700'
-                        : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
-                    }`}
-                  >
-                    {CHANNEL_ICONS[ch]} {ch}
-                  </button>
-                ))}
+                {CHANNEL_OPTIONS.map(ch => {
+                  const meta = CHANNEL_META[ch];
+                  const active = selectedChannels.includes(ch);
+                  return (
+                    <button
+                      key={ch}
+                      onClick={() => toggleChannel(ch)}
+                      title={meta.label}
+                      className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border font-medium transition-all ${
+                        active
+                          ? 'text-white border-transparent'
+                          : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+                      }`}
+                      style={active ? { background: meta.color, borderColor: meta.color } : {}}
+                    >
+                      <span style={{ fontSize: 12, color: active ? '#fff' : meta.color }} className="flex items-center">
+                        {meta.icon}
+                      </span>
+                      {meta.label}
+                    </button>
+                  );
+                })}
               </div>
               {hasContentPlan ? (
                 <div className="flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
