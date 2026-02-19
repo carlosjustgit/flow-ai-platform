@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabase';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import type { ResearchFoundationPackJson, ContentPost, ContentPlanJson } from '@/lib/gemini';
+import type { ResearchFoundationPackJson, ContentPost, ContentPlanJson, QAResult } from '@/lib/gemini';
 import {
   FaInstagram,
   FaLinkedin,
@@ -723,6 +723,262 @@ function ContentPlanViewer({ plan, markdown, clientName }: { plan: ContentPlanJs
   );
 }
 
+// ─── QA Viewer ─────────────────────────────────────────────────────────────
+
+const STATUS_PILLS: Record<string, { label: string; className: string }> = {
+  approved:       { label: 'Approved',       className: 'bg-green-100 text-green-800 border-green-200' },
+  minor_edits:    { label: 'Minor Edits',    className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+  needs_revision: { label: 'Needs Revision', className: 'bg-red-100 text-red-800 border-red-200' },
+};
+
+const CHECKLIST_LABELS: Record<string, string> = {
+  on_brand_voice:          'Brand Voice',
+  clarity:                 'Clarity',
+  claims_compliance:       'Claims',
+  cta_quality:             'CTA',
+  formatting_per_platform: 'Formatting',
+  readability:             'Readability',
+};
+
+function QAResultCard({ result }: { result: QAResult }) {
+  const [expanded, setExpanded] = useState(false);
+  const pill = STATUS_PILLS[result.overall_status] ?? STATUS_PILLS.needs_revision;
+  const checks = Object.entries(result.checklist) as [string, { pass: boolean; note: string }][];
+  const failCount = checks.filter(([, v]) => !v.pass).length;
+  const hasCorrectedCaption = result.corrected_caption !== result.original_caption;
+  const hasCorrectedHook = result.corrected_hook !== result.original_hook;
+
+  return (
+    <div className={`bg-white rounded-lg border shadow-sm overflow-hidden ${
+      result.overall_status === 'needs_revision' ? 'border-red-200' :
+      result.overall_status === 'minor_edits'    ? 'border-yellow-200' :
+      'border-green-200'
+    }`}>
+      {/* Card header */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
+        <ChannelBadge channel={result.channel} />
+        <span className="text-xs text-gray-400 font-mono">{result.post_id}</span>
+        <span className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full border ${pill.className}`}>
+          {pill.label}
+        </span>
+      </div>
+
+      {/* Checklist row */}
+      <div className="flex flex-wrap gap-2 px-4 py-3 bg-gray-50 border-b border-gray-100">
+        {checks.map(([key, val]) => (
+          <span
+            key={key}
+            title={val.note}
+            className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium ${
+              val.pass
+                ? 'bg-green-50 text-green-700 border-green-200'
+                : 'bg-red-50 text-red-700 border-red-200'
+            }`}
+          >
+            {val.pass ? '✓' : '✗'} {CHECKLIST_LABELS[key] ?? key}
+          </span>
+        ))}
+        {failCount > 0 && (
+          <span className="text-xs text-gray-400 ml-auto mt-0.5">{failCount} issue{failCount > 1 ? 's' : ''}</span>
+        )}
+      </div>
+
+      {/* Hook */}
+      <div className="px-4 pt-3 pb-0">
+        <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">Hook</p>
+        {hasCorrectedHook ? (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Original</p>
+              <p className="text-sm text-gray-500 line-through">{result.original_hook}</p>
+            </div>
+            <div>
+              <p className="text-xs text-green-600 mb-1 font-semibold">Corrected</p>
+              <p className="text-sm text-gray-900 font-medium">{result.corrected_hook}</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-800 font-medium">"{result.original_hook}"</p>
+        )}
+      </div>
+
+      {/* Expandable: caption diff + change log */}
+      {expanded && (
+        <div className="px-4 pt-3 pb-4 space-y-4">
+          {/* Caption */}
+          <div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Caption</p>
+            {hasCorrectedCaption ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="p-3 bg-red-50 rounded border border-red-100">
+                  <p className="text-xs text-red-500 font-semibold mb-1">Original</p>
+                  <p className="text-xs text-gray-700 whitespace-pre-line">{result.original_caption}</p>
+                </div>
+                <div className="p-3 bg-green-50 rounded border border-green-100">
+                  <p className="text-xs text-green-600 font-semibold mb-1">Corrected</p>
+                  <p className="text-xs text-gray-900 whitespace-pre-line">{result.corrected_caption}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 bg-gray-50 rounded border border-gray-200">
+                <p className="text-xs text-gray-700 whitespace-pre-line">{result.original_caption}</p>
+              </div>
+            )}
+          </div>
+
+          {/* CTA */}
+          <div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">CTA</p>
+            <p className="text-sm text-gray-800">{result.corrected_cta}</p>
+          </div>
+
+          {/* Change log */}
+          {result.change_log.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Changes Made</p>
+              <ul className="space-y-1">
+                {result.change_log.map((item, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs text-gray-700">
+                    <span className="text-yellow-500 mt-0.5 flex-shrink-0">→</span>{item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Checklist notes */}
+          <div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">QA Notes</p>
+            <div className="space-y-1">
+              {checks.filter(([, v]) => v.note).map(([key, val]) => (
+                <div key={key} className="flex items-start gap-2 text-xs">
+                  <span className={val.pass ? 'text-green-500' : 'text-red-500'}>{val.pass ? '✓' : '✗'}</span>
+                  <span className="font-semibold text-gray-600 w-24 flex-shrink-0">{CHECKLIST_LABELS[key]}:</span>
+                  <span className="text-gray-600">{val.note}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="px-4 py-2 border-t border-gray-100">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-xs text-purple-600 hover:underline font-medium"
+        >
+          {expanded ? '↑ Collapse' : '↓ View caption diff + notes'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface QAData {
+  results: QAResult[];
+  summary: {
+    total: number;
+    approved: number;
+    minor_edits: number;
+    needs_revision: number;
+  };
+}
+
+function QAViewer({ data, clientName, contentPlan }: { data: QAData; clientName: string; contentPlan: ContentPlanJson | null }) {
+  const [filter, setFilter] = useState<'all' | 'approved' | 'minor_edits' | 'needs_revision'>('all');
+
+  const sortedResults = [...data.results].sort((a, b) => {
+    const order = { needs_revision: 0, minor_edits: 1, approved: 2 };
+    return (order[a.overall_status] ?? 3) - (order[b.overall_status] ?? 3);
+  });
+
+  const filtered = filter === 'all' ? sortedResults : sortedResults.filter(r => r.overall_status === filter);
+
+  const handleDownloadCorrected = () => {
+    if (!contentPlan) return;
+    const corrected = {
+      ...contentPlan,
+      posts: contentPlan.posts.map(post => {
+        const qa = data.results.find(r => r.post_id === post.id);
+        if (!qa) return post;
+        return {
+          ...post,
+          hook: qa.corrected_hook,
+          caption: qa.corrected_caption,
+          cta: qa.corrected_cta,
+        };
+      }),
+    };
+    const blob = new Blob([JSON.stringify(corrected, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${clientName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-content-calendar-qa-approved.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+        <div className="flex items-center gap-4">
+          <h3 className="font-bold text-lg text-gray-900">QA Results</h3>
+          <div className="flex gap-2">
+            <span className="text-xs font-bold px-2 py-1 rounded-full bg-green-100 text-green-800">
+              ✓ {data.summary.approved} approved
+            </span>
+            <span className="text-xs font-bold px-2 py-1 rounded-full bg-yellow-100 text-yellow-800">
+              ~ {data.summary.minor_edits} minor
+            </span>
+            <span className="text-xs font-bold px-2 py-1 rounded-full bg-red-100 text-red-800">
+              ✗ {data.summary.needs_revision} revision
+            </span>
+          </div>
+        </div>
+        <button
+          onClick={handleDownloadCorrected}
+          disabled={!contentPlan}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 rounded hover:bg-black disabled:bg-gray-300"
+        >
+          ↓ Corrected Calendar
+        </button>
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex border-b border-gray-200 bg-white px-2">
+        {(['all', 'needs_revision', 'minor_edits', 'approved'] as const).map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${
+              filter === f
+                ? 'border-purple-600 text-purple-600 bg-purple-50'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            {f === 'all' ? `All (${data.summary.total})` :
+             f === 'needs_revision' ? `Needs Revision (${data.summary.needs_revision})` :
+             f === 'minor_edits' ? `Minor Edits (${data.summary.minor_edits})` :
+             `Approved (${data.summary.approved})`}
+          </button>
+        ))}
+      </div>
+
+      {/* Results list */}
+      <div className="p-6 bg-gray-50 space-y-4 min-h-[400px]">
+        {filtered.length === 0 ? (
+          <p className="text-gray-500 text-sm">No posts in this category.</p>
+        ) : (
+          filtered.map(result => <QAResultCard key={result.post_id} result={result} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Agent Pipeline Status ──────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<string, string> = {
@@ -739,6 +995,7 @@ const AGENT_LABELS: Record<string, string> = {
   kb_packager: 'KB Builder Agent',
   presentation: 'Presentation Agent',
   content_planner: 'Content Planner Agent',
+  qa: 'QA Agent',
 };
 
 // ─── Page ───────────────────────────────────────────────────────────────────
@@ -755,7 +1012,7 @@ export default function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [runningAgent, setRunningAgent] = useState<string | null>(null);
   const [agentStatus, setAgentStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [activeStep, setActiveStep] = useState<'onboarding' | 'research' | 'kb' | 'presentation' | 'content'>('research');
+  const [activeStep, setActiveStep] = useState<'onboarding' | 'research' | 'kb' | 'presentation' | 'content' | 'qa'>('research');
   const [selectedChannels, setSelectedChannels] = useState<string[]>(['instagram', 'linkedin']);
   const [runningSeconds, setRunningSeconds] = useState(0);
 
@@ -790,11 +1047,13 @@ export default function ProjectDetailPage() {
   // MUST be before any early returns to satisfy Rules of Hooks.
   useEffect(() => {
     if (loading) return;
+    const hasQAResults = artifacts.some(a => a.type === 'qa_results_json');
     const hasContent = artifacts.some(a => a.type === 'content_plan_json');
     const hasPres = artifacts.some(a => a.type === 'presentation');
     const hasKbFiles = artifacts.some(a => a.type === 'kb_file');
     const hasRes = artifacts.some(a => a.type === 'research_foundation_pack_json');
-    if (hasContent) setActiveStep('content');
+    if (hasQAResults) setActiveStep('qa');
+    else if (hasContent) setActiveStep('content');
     else if (hasPres) setActiveStep('presentation');
     else if (hasKbFiles) setActiveStep('kb');
     else if (hasRes) setActiveStep('research');
@@ -842,6 +1101,14 @@ export default function ProjectDetailPage() {
         return;
       }
       endpoint = '/api/workers/content-planner';
+    } else if (agentType === 'qa') {
+      inputArtifact = findArtifact('content_plan_json');
+      if (!inputArtifact) {
+        setAgentStatus({ message: 'Run the Content Planner first — the QA Agent reviews its output.', type: 'error' });
+        setRunningAgent(null);
+        return;
+      }
+      endpoint = '/api/workers/qa';
     } else {
       setAgentStatus({ message: `Agent "${agentType}" is not yet available.`, type: 'error' });
       setRunningAgent(null);
@@ -935,6 +1202,8 @@ export default function ProjectDetailPage() {
   const contentPlanJsonArtifact = findArtifact('content_plan_json');
   const contentPlanMdArtifact = findArtifact('content_plan_md');
   const hasContentPlan = !!contentPlanJsonArtifact;
+  const qaArtifact = findArtifact('qa_results_json');
+  const hasQA = !!qaArtifact;
 
   const CHANNEL_OPTIONS = ['instagram', 'linkedin', 'tiktok', 'facebook', 'youtube', 'x'] as const;
 
@@ -1156,6 +1425,47 @@ export default function ProjectDetailPage() {
                 </button>
               )}
             </div>
+            <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
+
+            {/* Step 6 - QA Agent */}
+            <div
+              onClick={() => setActiveStep('qa')}
+              className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                activeStep === 'qa'
+                  ? 'border-purple-600 bg-purple-50 shadow-md ring-2 ring-purple-200'
+                  : hasQA ? 'border-green-400 bg-green-50 hover:shadow' : 'border-gray-200 bg-white hover:shadow'
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xl">{hasQA ? '✅' : '🔍'}</span>
+                <h3 className="font-semibold text-sm">6. QA Review</h3>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">
+                {hasQA
+                  ? (() => {
+                      const s = qaArtifact?.content_json?.summary;
+                      return s ? `${s.approved} ok · ${s.minor_edits} minor · ${s.needs_revision} revision` : 'QA complete';
+                    })()
+                  : 'Reviews all 30 posts'}
+              </p>
+              {hasQA ? (
+                <button
+                  onClick={(e) => { e.stopPropagation(); runAgent('qa'); }}
+                  disabled={runningAgent !== null}
+                  className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  {runningAgent === 'qa' ? `Running… ${runningSeconds}s` : 'Re-run QA'}
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => { e.stopPropagation(); runAgent('qa'); }}
+                  disabled={runningAgent !== null || !hasContentPlan}
+                  className="w-full px-3 py-1.5 bg-purple-700 text-white text-xs rounded hover:bg-purple-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  {runningAgent === 'qa' ? `Running… ${runningSeconds}s` : 'Run QA Agent'}
+                </button>
+              )}
+            </div>
           </div>
         </section>
 
@@ -1335,6 +1645,23 @@ export default function ProjectDetailPage() {
         {activeStep === 'content' && !hasContentPlan && (
           <section>
             <p className="text-gray-500 text-sm">No content plan yet. Select channels above and run the Content Planner Agent.</p>
+          </section>
+        )}
+
+        {/* QA output */}
+        {activeStep === 'qa' && hasQA && qaArtifact?.content_json && (
+          <section>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">QA Review</h2>
+            <QAViewer
+              data={qaArtifact.content_json as { results: QAResult[]; summary: { total: number; approved: number; minor_edits: number; needs_revision: number } }}
+              clientName={project.client_name}
+              contentPlan={contentPlanJsonArtifact?.content_json as ContentPlanJson ?? null}
+            />
+          </section>
+        )}
+        {activeStep === 'qa' && !hasQA && (
+          <section>
+            <p className="text-gray-500 text-sm">No QA results yet. Run the QA Agent after the Content Planner completes.</p>
           </section>
         )}
 

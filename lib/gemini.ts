@@ -691,3 +691,203 @@ Return ONLY valid JSON — no markdown, no explanation — in this exact shape:
 
   return { ...parsed, tokensIn, tokensOut };
 }
+
+// ─── QA Agent ──────────────────────────────────────────────────────────────
+
+const QA_SYSTEM_INSTRUCTION = `
+You are the Senior Content QA Director at Flow Productions. Your job is to review every social media post draft produced by the Content Planner and ensure it meets our quality bar before it reaches a designer or goes live.
+
+You are an expert in:
+- Brand voice consistency and tone-of-voice compliance
+- Platform-native formatting rules (character limits, line break conventions, emoji usage norms per channel)
+- Claims compliance (no invented statistics, no unprovable superlatives, no legal risk)
+- Copywriting clarity and readability (Flesch-Kincaid awareness, sentence length, jargon avoidance)
+- CTA effectiveness (specificity, urgency, frictionless action)
+- Social media algorithm behaviour and how formatting affects reach
+
+━━━ REVIEW CRITERIA (apply to every post) ━━━
+
+ON_BRAND_VOICE: Does the tone, vocabulary, and personality match the client's positioning statement and messaging pillars exactly? Is it consistent with the brand voice from the KB?
+
+CLARITY: Is every sentence immediately understandable on first read? No ambiguity, no jargon the audience would not use, no over-long sentences (aim for max 20 words per sentence in captions).
+
+CLAIMS_COMPLIANCE: Are all claims verifiable or appropriately hedged? Flag anything that could cause legal or reputational risk. Propose a safer alternative if needed. NEVER invent numbers or case studies to replace a flagged claim.
+
+CTA_QUALITY: Is the CTA specific, platform-appropriate, and low-friction? "Click the link" is weak. "Save this for your next campaign brief" is strong. "DM us PLAN" is actionable.
+
+FORMATTING_PER_PLATFORM: Check platform rules:
+- Instagram: line breaks after every 1-2 sentences, emojis appropriate, hashtags at end or first comment
+- LinkedIn: no more than 3 emojis total, no hashtag spam (max 5), professional opener, avoid exclamation marks
+- TikTok: short punchy captions (under 150 chars for the visible part), hook must be the first line of the video script
+- Facebook: conversational, longer captions acceptable, question-based CTAs work well
+- YouTube Shorts: caption is the video title — keyword-first, under 100 chars
+- X/Twitter: under 280 chars if single tweet, threads must flow naturally
+
+READABILITY: Passive voice? Awkward phrasing? Fix it. Aim for Grade 8 reading level for B2C, Grade 10 for B2B LinkedIn.
+
+━━━ OUTPUT RULES ━━━
+
+- Process EVERY post in the input array. Return one QAResult per post.
+- If a post passes all criteria: overall_status = "approved", keep corrected fields identical to originals.
+- If a post needs small copy tweaks: overall_status = "minor_edits".
+- If a post has a claims violation, completely wrong tone, or platform formatting failure: overall_status = "needs_revision".
+- change_log must list ONLY the actual changes made — empty array if approved with no changes.
+- corrected_hook and corrected_caption must be complete, publish-ready copy.
+- Write all corrections in the same language as the original post.
+`;
+
+const QA_RESPONSE_SCHEMA: Schema = {
+  type: Type.ARRAY,
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      post_id: { type: Type.STRING },
+      channel: { type: Type.STRING },
+      original_hook: { type: Type.STRING },
+      corrected_hook: { type: Type.STRING },
+      original_caption: { type: Type.STRING },
+      corrected_caption: { type: Type.STRING },
+      corrected_cta: { type: Type.STRING },
+      change_log: { type: Type.ARRAY, items: { type: Type.STRING } },
+      checklist: {
+        type: Type.OBJECT,
+        properties: {
+          on_brand_voice: {
+            type: Type.OBJECT,
+            properties: { pass: { type: Type.BOOLEAN }, note: { type: Type.STRING } },
+          },
+          clarity: {
+            type: Type.OBJECT,
+            properties: { pass: { type: Type.BOOLEAN }, note: { type: Type.STRING } },
+          },
+          claims_compliance: {
+            type: Type.OBJECT,
+            properties: { pass: { type: Type.BOOLEAN }, note: { type: Type.STRING } },
+          },
+          cta_quality: {
+            type: Type.OBJECT,
+            properties: { pass: { type: Type.BOOLEAN }, note: { type: Type.STRING } },
+          },
+          formatting_per_platform: {
+            type: Type.OBJECT,
+            properties: { pass: { type: Type.BOOLEAN }, note: { type: Type.STRING } },
+          },
+          readability: {
+            type: Type.OBJECT,
+            properties: { pass: { type: Type.BOOLEAN }, note: { type: Type.STRING } },
+          },
+        },
+      },
+      overall_status: { type: Type.STRING },
+    },
+    required: ['post_id', 'channel', 'original_hook', 'corrected_hook', 'original_caption', 'corrected_caption', 'corrected_cta', 'change_log', 'checklist', 'overall_status'],
+  },
+};
+
+export interface QAChecklistItem {
+  pass: boolean;
+  note: string;
+}
+
+export interface QAResult {
+  post_id: string;
+  channel: string;
+  original_hook: string;
+  corrected_hook: string;
+  original_caption: string;
+  corrected_caption: string;
+  corrected_cta: string;
+  change_log: string[];
+  checklist: {
+    on_brand_voice: QAChecklistItem;
+    clarity: QAChecklistItem;
+    claims_compliance: QAChecklistItem;
+    cta_quality: QAChecklistItem;
+    formatting_per_platform: QAChecklistItem;
+    readability: QAChecklistItem;
+  };
+  overall_status: 'approved' | 'minor_edits' | 'needs_revision';
+}
+
+export interface QAResponse {
+  results: QAResult[];
+  tokensIn: number;
+  tokensOut: number;
+}
+
+export async function generateQAResults(
+  posts: ContentPost[],
+  strategyContext: {
+    positioning_statement: string;
+    messaging_pillars: Array<{ pillar: string; key_message: string }>;
+    claims_rules: { allowed: string[]; not_allowed: string[]; needs_proof: string[] };
+    content_themes: string[];
+  },
+  language = 'pt',
+): Promise<QAResponse> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY environment variable is required');
+
+  const langDirective = language === 'en'
+    ? 'LANGUAGE: All corrections must be written in UK English.'
+    : 'LANGUAGE: All corrections must be written in European Portuguese (pt-PT). Use formal pt-PT — never Brazilian Portuguese.';
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  const prompt = `Review all ${posts.length} posts below and return one QAResult per post.
+
+=== STRATEGY CONTEXT ===
+Positioning Statement: ${strategyContext.positioning_statement}
+
+Messaging Pillars:
+${strategyContext.messaging_pillars.map((p: any) => `- ${p.pillar}: ${p.key_message}`).join('\n')}
+
+Claims Rules:
+- Allowed: ${(strategyContext.claims_rules.allowed ?? []).join(', ')}
+- NOT Allowed: ${(strategyContext.claims_rules.not_allowed ?? []).join(', ')}
+- Needs Proof Before Publishing: ${(strategyContext.claims_rules.needs_proof ?? []).join(', ')}
+
+Content Themes: ${(strategyContext.content_themes ?? []).join(', ')}
+
+=== POSTS TO REVIEW ===
+${JSON.stringify(posts.map(p => ({
+  id: p.id,
+  channel: p.channel,
+  format: p.format,
+  content_pillar: p.content_pillar,
+  hook: p.hook,
+  caption: p.caption,
+  cta: p.cta,
+  hashtags: p.hashtags,
+})), null, 2)}`;
+
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error('QA Agent timed out after 180s. Please try again.')),
+      180_000
+    )
+  );
+
+  const response = await Promise.race([
+    ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: {
+        systemInstruction: `${langDirective}\n\n${QA_SYSTEM_INSTRUCTION}`,
+        responseMimeType: 'application/json',
+        responseSchema: QA_RESPONSE_SCHEMA,
+        temperature: 0.2,
+      },
+    }),
+    timeoutPromise,
+  ]);
+
+  const text = response.text;
+  if (!text) throw new Error('No response generated from Gemini.');
+
+  const results = JSON.parse(text) as QAResult[];
+  const tokensIn = (response as any).usageMetadata?.promptTokenCount ?? 0;
+  const tokensOut = (response as any).usageMetadata?.candidatesTokenCount ?? 0;
+
+  return { results, tokensIn, tokensOut };
+}
