@@ -8,7 +8,7 @@ import { createServiceClient } from '@/lib/supabase';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { client_name } = body;
+    const { client_name, language } = body;
 
     if (!client_name || typeof client_name !== 'string') {
       return NextResponse.json(
@@ -17,11 +17,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (language && !['pt', 'en'].includes(language)) {
+      return NextResponse.json(
+        { error: 'language must be "pt" or "en"' },
+        { status: 400 }
+      );
+    }
+
     const supabase = createServiceClient();
 
     const { data: project, error } = await supabase
       .from('projects')
-      .insert({ client_name } as any)
+      .insert({ client_name, language: language ?? 'pt' } as any)
       .select()
       .single();
 

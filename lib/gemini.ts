@@ -528,52 +528,43 @@ The calendar_markdown field should be a full human-readable version of the entir
 // ─── Presentation Agent ────────────────────────────────────────────────────
 
 // ─── Presentation: Copy Agent (Step 4a) ────────────────────────────────────
-// Gemini writes the WORDS. pptxgenjs applies the VISUAL TEMPLATE.
-// Keeping them separate makes each fast and independently swappable.
+// Gemini writes the NARRATIVE COPY. docxtemplater populates the design team's PPTX template.
 
 const PRESENTATION_SYSTEM_INSTRUCTION = `
 You are the Senior Creative Strategist for Flow Productions.
 
-Your job: write the SLIDE COPY for an 8-slide client-facing strategy deck using the research data provided.
+Your job: write the SLIDE COPY for the client-facing strategy deck using the research data provided.
+The deck uses a branded PPTX template with fixed slide layouts — you must populate specific fields.
 
 CRITICAL RULES — failing these will result in rejected work:
-- NEVER write generic statements. Every bullet must reference a specific fact, name, number, or insight from the research.
+- NEVER write generic statements. Every field must reference a specific fact, name, number, or insight from the research.
 - Name competitors by name. Name ICP segments by name. Quote market sizes or trends.
 - If the research mentions a specific percentage, growth rate, platform, tool, or quote — USE IT.
 - Write as if you've spent a week studying this client. The client should read this and think "these people really get us."
 - Tone: confident, direct, client-centric. No agency jargon. No filler sentences.
-
-OUTPUT: EXACTLY 8 slides. Each slide must have:
-- slide_number (1 to 8)
-- slide_title (short, 3-6 words)
-- headline (one punchy sentence — the BIG IDEA of the slide)
-- bullet_points (3-5 items — specific, factual, full sentences)
-- speaker_notes (2-3 sentences guiding the presenter on what to emphasise)
-
-Slide Order (mandatory)
-1. Cover — Deck title + the single most powerful insight about this client's opportunity
-2. What We Heard From You — Their exact pain points, goals, and current situation (from the onboarding data)
-3. The Market Opportunity — Specific market size, growth trend, timing window for this sector
-4. Your Competitive Landscape — Name 3 competitors, their weaknesses, where this client wins
-5. Who You're Really Talking To — Specific ICP: demographics, psychographics, buying triggers
-6. Your Strategic Positioning — Our recommended positioning statement and why it wins
-7. Content & Channel Strategy — The 3 content pillars and the specific platforms to dominate
-8. Next Steps — 3 concrete actions with clear owners and a timeline
+- deck_title: short, powerful, 4-8 words (e.g. "Estratégia Digital que Converte")
+- headline (slide 1 tagline): one punchy sentence summarising the strategic opportunity
+- slide2_headline: one provocative, memorable statement about the client's biggest challenge or opportunity — this is the big opener on the dark intro slide
+- slide titles: 3-6 words, topic label
+- bullets: full sentences, specific facts — NOT vague summaries
+- Write in the language specified in the system instruction.
 `;
 
-// Simplified slide — only what Gemini writes. Visual layout is handled by pptxgenjs templates.
-export interface PresentationSlide {
-  slide_number: number;
-  slide_title: string;
-  headline: string;
-  bullet_points: string[];
-  speaker_notes: string;
-}
-
-export interface PresentationResponse {
+/** Narrative fields Gemini fills — Lean Canvas comes directly from the research pack. */
+export interface PresentationNarrative {
   client_name: string;
   deck_title: string;
-  slides: PresentationSlide[];
+  headline: string;
+  slide2_headline: string;
+  slide3_title: string;
+  slide3_bullet_1: string;
+  slide3_bullet_2: string;
+  slide4_title: string;
+  slide4_bullet_1: string;
+  slide4_bullet_2: string;
+  slide5_title: string;
+  slide5_bullet_1: string;
+  slide6_title: string;
   tokensIn: number;
   tokensOut: number;
 }
@@ -587,7 +578,6 @@ function safeArr(val: unknown): any[] {
 /** Extract only the fields that matter for slide generation — keeps the prompt concise. */
 function compressResearchPack(pack: ResearchFoundationPackJson): Record<string, unknown> {
   const p = pack as any;
-  // competitor_landscape may be the object wrapper OR directly an array depending on schema version
   const rawCompetitors = Array.isArray(p.competitor_landscape)
     ? p.competitor_landscape
     : safeArr(p.competitor_landscape?.competitors);
@@ -607,7 +597,6 @@ function compressResearchPack(pack: ResearchFoundationPackJson): Record<string, 
     campaign_foundations: p.campaign_foundations,
     ideal_customer_profile: p.ideal_customer_profile,
     risks: p.risks,
-    sources_needed: p.sources_needed,
   };
 }
 
@@ -615,19 +604,17 @@ export async function generatePresentationPack(
   researchPack: ResearchFoundationPackJson,
   kbFiles: Array<{ title: string; content: string }>,
   clientName: string
-): Promise<PresentationResponse> {
+): Promise<PresentationNarrative> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY environment variable is required');
 
   const ai = new GoogleGenAI({ apiKey });
 
-  // Send top KB files (2500 chars each) — enough context without blowing up tokens
   const kbSummary = kbFiles
     .slice(0, 8)
     .map((f) => `### ${f.title}\n${f.content.slice(0, 2500)}`)
     .join('\n\n---\n\n');
 
-  // Send the compressed research pack — has all key structured data
   const compressedPack = compressResearchPack(researchPack);
 
   const prompt = `Client Name: ${clientName}
@@ -638,26 +625,26 @@ ${JSON.stringify(compressedPack, null, 2)}
 === KNOWLEDGE BASE EXCERPTS ===
 ${kbSummary}
 
-Note: A separate SWOT Matrix slide and Lean Canvas slide will be added automatically from the structured data — do NOT include SWOT or Lean Canvas content in your 8 slides. Focus on narrative, strategy, and action.
-
-Write the slide copy for exactly 8 slides following the mandatory slide order.
+The Lean Canvas slide (slide 6) is populated automatically from structured data — do NOT include LC fields below.
+Focus slides 3, 4, 5 on: Market Opportunity, Competitive Landscape, and Ideal Customer Profile.
 
 Return ONLY valid JSON — no markdown, no explanation — in this exact shape:
 {
   "client_name": "${clientName}",
   "deck_title": "...",
-  "slides": [
-    {
-      "slide_number": 1,
-      "slide_title": "...",
-      "headline": "...",
-      "bullet_points": ["...", "...", "..."],
-      "speaker_notes": "..."
-    }
-  ]
+  "headline": "...",
+  "slide2_headline": "...",
+  "slide3_title": "...",
+  "slide3_bullet_1": "...",
+  "slide3_bullet_2": "...",
+  "slide4_title": "...",
+  "slide4_bullet_1": "...",
+  "slide4_bullet_2": "...",
+  "slide5_title": "...",
+  "slide5_bullet_1": "...",
+  "slide6_title": "..."
 }`;
 
-  // 240-second safety net — just under Vercel's 300s max
   const timeoutPromise = new Promise<never>((_, reject) =>
     setTimeout(
       () => reject(new Error('Gemini timed out after 240s. The model may be under load — please try again.')),
@@ -671,8 +658,6 @@ Return ONLY valid JSON — no markdown, no explanation — in this exact shape:
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
         systemInstruction: PRESENTATION_SYSTEM_INSTRUCTION,
-        // No responseSchema — constrained decoding for 64 fields is too slow.
-        // We ask for JSON via the prompt and parse it ourselves.
         responseMimeType: 'application/json',
         temperature: 0.4,
       },
@@ -683,9 +668,8 @@ Return ONLY valid JSON — no markdown, no explanation — in this exact shape:
   const text = response.text;
   if (!text) throw new Error('No response generated from Gemini.');
 
-  // Strip any accidental markdown fences the model might add
   const cleaned = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
-  const parsed = JSON.parse(cleaned) as Omit<PresentationResponse, 'tokensIn' | 'tokensOut'>;
+  const parsed = JSON.parse(cleaned) as Omit<PresentationNarrative, 'tokensIn' | 'tokensOut'>;
   const tokensIn = (response as any).usageMetadata?.promptTokenCount ?? 0;
   const tokensOut = (response as any).usageMetadata?.candidatesTokenCount ?? 0;
 
@@ -863,8 +847,8 @@ ${JSON.stringify(posts.map(p => ({
 
   const timeoutPromise = new Promise<never>((_, reject) =>
     setTimeout(
-      () => reject(new Error('QA Agent timed out after 180s. Please try again.')),
-      180_000
+      () => reject(new Error(`QA batch timed out after 80s (${posts.length} posts). Please try again.`)),
+      80_000
     )
   );
 

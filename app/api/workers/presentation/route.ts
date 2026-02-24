@@ -3,9 +3,8 @@ import { createServiceClient } from '@/lib/supabase';
 import { logWorkerRun } from '@/lib/logging';
 import { getArtifact, updateJobStatus } from '@/lib/orchestrator';
 import { generatePresentationPack } from '@/lib/gemini';
-import { renderPptxFromSlides } from '@/lib/pptx';
+import { buildTemplateData, renderPptxFromTemplate } from '@/lib/pptx';
 
-// Must appear at module scope AFTER imports for Next.js static analysis
 export const maxDuration = 300;
 
 /**
@@ -14,8 +13,14 @@ export const maxDuration = 300;
  * Presentation Agent — Worker #4.
  * Input:  research_foundation_pack_json artifact + kb_file artifacts
  * Output:
- *   - presentation_content_json artifact (raw slide data for re-rendering)
+ *   - presentation_content_json artifact (raw narrative data for audit/re-rendering)
  *   - presentation artifact with file_url pointing to PPTX in Supabase Storage
+ *
+ * Flow:
+ *   1. Gemini writes the narrative copy (titles, headlines, bullets) for slides 1-6
+ *   2. Lean Canvas fields are taken directly from the research pack (structured data)
+ *   3. buildTemplateData merges both into a flat TemplateData object
+ *   4. renderPptxFromTemplate populates templates/deck-template.pptx via docxtemplater
  */
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
@@ -24,7 +29,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { project_id, input_artifact_id, job_id: jobId } = body;
-    job_id = jobId; // hoist so catch block can reference it
+    job_id = jobId;
 
     if (!project_id || !input_artifact_id || !job_id) {
       return NextResponse.json(
@@ -35,23 +40,24 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // Load research foundation pack (the primary input)
+    // Load research foundation pack
     const researchArtifact = await getArtifact(input_artifact_id);
     const researchPack = (researchArtifact as any).content_json;
     if (!researchPack) {
       throw new Error('Research foundation pack artifact has no JSON content');
     }
 
-    // Load the project name
+    // Load project
     const { data: project } = await supabase
       .from('projects')
-      .select('client_name')
+      .select('client_name, language')
       .eq('id', project_id)
       .single();
 
     const clientName = (project as any)?.client_name ?? 'Client';
+    const language: 'pt' | 'en' = (project as any)?.language ?? 'pt';
 
-    // Load all KB files for this project
+    // Load KB files
     const { data: kbArtifacts } = await supabase
       .from('artifacts')
       .select('title, content')
@@ -63,23 +69,40 @@ export async function POST(request: NextRequest) {
       .filter((a) => a.content)
       .map((a) => ({ title: a.title, content: a.content }));
 
-    // Generate slide content via Gemini
-    const result = await generatePresentationPack(researchPack, kbFiles, clientName);
+    // Step 1 — Gemini generates narrative copy
+    const narrative = await generatePresentationPack(researchPack, kbFiles, clientName);
 
-    // Render PPTX — pass raw research pack so renderer can insert SWOT + Lean Canvas slides
-    const pptxBuffer = await renderPptxFromSlides(
-      result.slides,
-      result.deck_title,
-      clientName,
-      { swot: researchPack.swot, lean_canvas: researchPack.lean_canvas }
+    // Step 2 — Merge with Lean Canvas data from research pack
+    const leanCanvas = (researchPack as any).lean_canvas ?? {};
+    const templateData = buildTemplateData(
+      {
+        client_name: narrative.client_name || clientName,
+        deck_title: narrative.deck_title,
+        headline: narrative.headline,
+        slide2_headline: narrative.slide2_headline,
+        slide3_title: narrative.slide3_title,
+        slide3_bullet_1: narrative.slide3_bullet_1,
+        slide3_bullet_2: narrative.slide3_bullet_2,
+        slide4_title: narrative.slide4_title,
+        slide4_bullet_1: narrative.slide4_bullet_1,
+        slide4_bullet_2: narrative.slide4_bullet_2,
+        slide5_title: narrative.slide5_title,
+        slide5_bullet_1: narrative.slide5_bullet_1,
+        slide6_title: narrative.slide6_title || (language === 'pt' ? 'Modelo de Negócio' : 'Business Model Canvas'),
+      },
+      leanCanvas
     );
+
+    // Step 3 — Populate the branded PPTX template
+    const pptxBuffer = await renderPptxFromTemplate(templateData);
 
     // Upload PPTX to Supabase Storage
     const filename = `${project_id}/presentation-${Date.now()}.pptx`;
-    const { data: storageData, error: storageError } = await supabase.storage
+    const { error: storageError } = await supabase.storage
       .from('flow-artifacts')
       .upload(filename, pptxBuffer, {
-        contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        contentType:
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
         upsert: true,
       });
 
@@ -87,14 +110,13 @@ export async function POST(request: NextRequest) {
       throw new Error(`Failed to upload PPTX to storage: ${storageError.message}`);
     }
 
-    // Get public URL
     const { data: urlData } = supabase.storage
       .from('flow-artifacts')
       .getPublicUrl(filename);
 
     const fileUrl = urlData?.publicUrl ?? null;
 
-    // Store raw slide JSON artifact (for future re-rendering)
+    // Store raw narrative JSON artifact
     const { data: jsonArtifact, error: jsonError } = await supabase
       .from('artifacts')
       .insert({
@@ -102,14 +124,14 @@ export async function POST(request: NextRequest) {
         type: 'presentation_content_json',
         format: 'json',
         title: `${clientName} — Presentation Content`,
-        content_json: { client_name: result.client_name, deck_title: result.deck_title, slides: result.slides },
+        content_json: templateData,
       } as any)
       .select()
       .single();
 
     if (jsonError) throw new Error(`Failed to store presentation JSON: ${jsonError.message}`);
 
-    // Store presentation artifact with file_url
+    // Store PPTX artifact with file_url
     const { data: pptxArtifact, error: pptxError } = await supabase
       .from('artifacts')
       .insert({
@@ -129,8 +151,8 @@ export async function POST(request: NextRequest) {
     await logWorkerRun({
       job_id,
       model: 'gemini-3-flash-preview',
-      tokens_in: result.tokensIn,
-      tokens_out: result.tokensOut,
+      tokens_in: narrative.tokensIn,
+      tokens_out: narrative.tokensOut,
       duration_ms: durationMs,
     });
 
@@ -141,15 +163,13 @@ export async function POST(request: NextRequest) {
         { id: (jsonArtifact as any).id, type: 'presentation_content_json' },
         { id: (pptxArtifact as any).id, type: 'presentation', file_url: fileUrl },
       ],
-      slide_count: result.slides.length,
-      tokens_in: result.tokensIn,
-      tokens_out: result.tokensOut,
+      tokens_in: narrative.tokensIn,
+      tokens_out: narrative.tokensOut,
       duration_ms: durationMs,
     });
   } catch (error) {
     console.error('[presentation-worker] error:', error);
 
-    // Use job_id captured before the error, no need to re-parse the request body
     if (job_id) {
       try {
         await logWorkerRun({

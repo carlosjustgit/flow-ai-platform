@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabase';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
@@ -1015,6 +1015,10 @@ export default function ProjectDetailPage() {
   const [activeStep, setActiveStep] = useState<'onboarding' | 'research' | 'kb' | 'presentation' | 'content' | 'qa'>('research');
   const [selectedChannels, setSelectedChannels] = useState<string[]>(['instagram', 'linkedin']);
   const [runningSeconds, setRunningSeconds] = useState(0);
+  const [autoChain, setAutoChain] = useState(false);
+  // Ref so the poll closure always reads the latest value without a stale capture
+  const autoChainRef = useRef(false);
+  useEffect(() => { autoChainRef.current = autoChain; }, [autoChain]);
 
   const loadData = useCallback(async () => {
     try {
@@ -1025,10 +1029,13 @@ export default function ProjectDetailPage() {
       ]);
       if (projectRes.error) throw projectRes.error;
       setProject(projectRes.data);
-      setArtifacts((artifactsRes.data as any) || []);
+      const freshArtifacts = (artifactsRes.data as any) || [];
+      setArtifacts(freshArtifacts);
       setJobs((jobsRes.data as any) || []);
+      return { artifacts: freshArtifacts as Artifact[] };
     } catch (err) {
       console.error('Failed to load project data:', err);
+      return { artifacts: [] as Artifact[] };
     } finally {
       setLoading(false);
     }
@@ -1062,56 +1069,87 @@ export default function ProjectDetailPage() {
 
   const findArtifact = (type: string) => artifacts.find(a => a.type === type);
 
-  const runAgent = async (agentType: string) => {
+  // Pipeline sequence used by "Run Full Pipeline" auto-chaining
+  const NEXT_AGENT: Record<string, string | null> = {
+    research: 'kb_packager',
+    kb_packager: 'presentation',
+    presentation: 'content_planner',
+    content_planner: 'qa',
+    qa: null,
+  };
+
+  // Determine the first incomplete agent given a fresh artifact list
+  const getFirstIncompleteAgent = (arts: Artifact[]): string | null => {
+    const has = (type: string) => arts.some(a => a.type === type);
+    if (!has('research_foundation_pack_json')) return 'research';
+    if (!has('kb_file')) return 'kb_packager';
+    if (!has('presentation')) return 'presentation';
+    if (!has('content_plan_json')) return 'content_planner';
+    if (!has('qa_results_json')) return 'qa';
+    return null;
+  };
+
+  const runAgent = async (agentType: string, freshArtifacts?: Artifact[]) => {
     setRunningAgent(agentType);
     setAgentStatus(null);
+
+    // Use freshArtifacts when provided (e.g. after auto-chaining) so we don't
+    // rely on stale React state that hasn't re-rendered yet.
+    const artifactList = freshArtifacts ?? artifacts;
+    const findInList = (type: string) => artifactList.find(a => a.type === type);
 
     let inputArtifact: Artifact | undefined;
     let endpoint: string;
 
     if (agentType === 'research') {
-      inputArtifact = findArtifact('onboarding_report_json') ?? findArtifact('onboarding_report');
+      inputArtifact = findInList('onboarding_report_json') ?? findInList('onboarding_report');
       if (!inputArtifact) {
         setAgentStatus({ message: 'No onboarding report found. Complete the onboarding survey first.', type: 'error' });
         setRunningAgent(null);
+        setAutoChain(false);
         return;
       }
       endpoint = '/api/workers/research';
     } else if (agentType === 'kb_packager') {
-      inputArtifact = findArtifact('research_foundation_pack_json');
+      inputArtifact = findInList('research_foundation_pack_json');
       if (!inputArtifact) {
         setAgentStatus({ message: 'Run the Research Agent first — it produces the input for KB Builder.', type: 'error' });
         setRunningAgent(null);
+        setAutoChain(false);
         return;
       }
       endpoint = '/api/workers/kb-packager';
     } else if (agentType === 'presentation') {
-      inputArtifact = findArtifact('research_foundation_pack_json');
+      inputArtifact = findInList('research_foundation_pack_json');
       if (!inputArtifact) {
         setAgentStatus({ message: 'Run the Research Agent first — it produces the input for the Presentation Agent.', type: 'error' });
         setRunningAgent(null);
+        setAutoChain(false);
         return;
       }
       endpoint = '/api/workers/presentation';
     } else if (agentType === 'content_planner') {
-      inputArtifact = findArtifact('research_foundation_pack_json');
+      inputArtifact = findInList('research_foundation_pack_json');
       if (!inputArtifact) {
         setAgentStatus({ message: 'Run the Research Agent first — it produces the input for the Content Planner.', type: 'error' });
         setRunningAgent(null);
+        setAutoChain(false);
         return;
       }
       endpoint = '/api/workers/content-planner';
     } else if (agentType === 'qa') {
-      inputArtifact = findArtifact('content_plan_json');
+      inputArtifact = findInList('content_plan_json');
       if (!inputArtifact) {
         setAgentStatus({ message: 'Run the Content Planner first — the QA Agent reviews its output.', type: 'error' });
         setRunningAgent(null);
+        setAutoChain(false);
         return;
       }
       endpoint = '/api/workers/qa';
     } else {
       setAgentStatus({ message: `Agent "${agentType}" is not yet available.`, type: 'error' });
       setRunningAgent(null);
+      setAutoChain(false);
       return;
     }
 
@@ -1148,6 +1186,14 @@ export default function ProjectDetailPage() {
       const MAX_WAIT_MS = 360_000; // 6 min absolute cap
       const startedAt = Date.now();
 
+      const AGENT_STEP_MAP: Record<string, 'research' | 'kb' | 'presentation' | 'content' | 'qa'> = {
+        research: 'research',
+        kb_packager: 'kb',
+        presentation: 'presentation',
+        content_planner: 'content',
+        qa: 'qa',
+      };
+
       const poll = setInterval(async () => {
         try {
           const { data: jobRow } = await supabase
@@ -1161,15 +1207,33 @@ export default function ProjectDetailPage() {
           if (jobRow.status === 'done' || jobRow.status === 'needs_approval') {
             clearInterval(poll);
             setRunningAgent(null);
-            setAgentStatus({ message: `${AGENT_LABELS[agentType] || agentType} completed successfully.`, type: 'success' });
-            await loadData();
+            if (AGENT_STEP_MAP[agentType]) setActiveStep(AGENT_STEP_MAP[agentType]);
+
+            const result = await loadData();
+            const updatedArtifacts = result?.artifacts ?? [];
+
+            // Auto-chain: if enabled, fire the next incomplete agent
+            if (autoChainRef.current) {
+              const nextAgent = NEXT_AGENT[agentType] ?? getFirstIncompleteAgent(updatedArtifacts);
+              if (nextAgent) {
+                setAgentStatus({ message: `${AGENT_LABELS[agentType] || agentType} done. Starting ${AGENT_LABELS[nextAgent] || nextAgent}…`, type: 'success' });
+                runAgent(nextAgent, updatedArtifacts);
+              } else {
+                setAutoChain(false);
+                setAgentStatus({ message: 'Full pipeline completed successfully.', type: 'success' });
+              }
+            } else {
+              setAgentStatus({ message: `${AGENT_LABELS[agentType] || agentType} completed successfully.`, type: 'success' });
+            }
           } else if (jobRow.status === 'failed') {
             clearInterval(poll);
             setRunningAgent(null);
+            setAutoChain(false);
             setAgentStatus({ message: `Error: ${jobRow.error || 'Agent failed'}`, type: 'error' });
           } else if (Date.now() - startedAt > MAX_WAIT_MS) {
             clearInterval(poll);
             setRunningAgent(null);
+            setAutoChain(false);
             setAgentStatus({ message: 'Agent is taking longer than expected. Check back soon — it may still be running.', type: 'error' });
           }
         } catch {
@@ -1180,6 +1244,7 @@ export default function ProjectDetailPage() {
     } catch (err: any) {
       setAgentStatus({ message: `Error: ${err.message}`, type: 'error' });
       setRunningAgent(null);
+      setAutoChain(false);
     }
   };
 
@@ -1237,14 +1302,54 @@ export default function ProjectDetailPage() {
 
         {/* Agent Pipeline */}
         <section>
-          <h2 className="text-xl font-bold text-gray-900 mb-1">Agent Pipeline</h2>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-xl font-bold text-gray-900">Agent Pipeline</h2>
+            {/* Run Full Pipeline / Stop button */}
+            {(() => {
+              const hasOnboarding = artifacts.some(a => a.type === 'onboarding_report_json' || a.type === 'onboarding_report');
+              const firstIncomplete = getFirstIncompleteAgent(artifacts);
+              if (autoChain && runningAgent) {
+                return (
+                  <button
+                    onClick={() => { setAutoChain(false); }}
+                    className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700 transition-all"
+                  >
+                    <span className="inline-block w-2 h-2 rounded-full bg-white animate-pulse" />
+                    Stop Auto-run
+                  </button>
+                );
+              }
+              if (hasOnboarding && firstIncomplete && !runningAgent) {
+                return (
+                  <button
+                    onClick={() => {
+                      setAutoChain(true);
+                      runAgent(firstIncomplete, artifacts);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-700 text-white text-sm font-semibold rounded-lg hover:bg-purple-800 transition-all shadow-sm"
+                  >
+                    <span>&#9654;</span>
+                    Run Full Pipeline
+                  </button>
+                );
+              }
+              if (!firstIncomplete && !runningAgent) {
+                return (
+                  <span className="text-sm text-green-700 font-medium flex items-center gap-1">
+                    <span>&#10003;</span> Pipeline complete
+                  </span>
+                );
+              }
+              return null;
+            })()}
+          </div>
           <p className="text-xs text-gray-400 mb-4">Click any step to view its output below.</p>
-          <div className="flex flex-wrap gap-3 items-center">
+          <div className="flex flex-nowrap gap-2 items-start overflow-x-auto pb-2">
 
             {/* Step 1 - Onboarding */}
             <div
               onClick={() => setActiveStep('onboarding')}
-              className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
+              className={`shrink-0 w-[170px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
                 activeStep === 'onboarding'
                   ? 'border-purple-600 bg-purple-50 shadow-md ring-2 ring-purple-200'
                   : onboardingArtifact ? 'border-green-400 bg-green-50 hover:shadow' : 'border-gray-200 bg-white hover:shadow'
@@ -1257,12 +1362,12 @@ export default function ProjectDetailPage() {
               <p className="text-xs text-gray-500">{onboardingArtifact ? 'Report received' : 'Awaiting onboarding survey'}</p>
             </div>
 
-            <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
+            <span className="shrink-0 text-gray-300 text-xl">&rarr;</span>
 
             {/* Step 2 - Research Agent */}
             <div
               onClick={() => setActiveStep('research')}
-              className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
+              className={`shrink-0 w-[170px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
                 activeStep === 'research'
                   ? 'border-purple-600 bg-purple-50 shadow-md ring-2 ring-purple-200'
                   : hasResearch ? 'border-green-400 bg-green-50 hover:shadow' : 'border-gray-200 bg-white hover:shadow'
@@ -1284,12 +1389,12 @@ export default function ProjectDetailPage() {
               )}
             </div>
 
-            <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
+            <span className="shrink-0 text-gray-300 text-xl">&rarr;</span>
 
             {/* Step 3 - KB Builder */}
             <div
               onClick={() => setActiveStep('kb')}
-              className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
+              className={`shrink-0 w-[170px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
                 activeStep === 'kb'
                   ? 'border-purple-600 bg-purple-50 shadow-md ring-2 ring-purple-200'
                   : hasKb ? 'border-green-400 bg-green-50 hover:shadow' : 'border-gray-200 bg-white hover:shadow'
@@ -1311,12 +1416,12 @@ export default function ProjectDetailPage() {
               )}
             </div>
 
-            <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
+            <span className="shrink-0 text-gray-300 text-xl">&rarr;</span>
 
             {/* Step 4 - Presentation Agent */}
             <div
               onClick={() => setActiveStep('presentation')}
-              className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
+              className={`shrink-0 w-[170px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
                 activeStep === 'presentation'
                   ? 'border-purple-600 bg-purple-50 shadow-md ring-2 ring-purple-200'
                   : hasPresentation ? 'border-green-400 bg-green-50 hover:shadow' : 'border-gray-200 bg-white hover:shadow'
@@ -1362,12 +1467,12 @@ export default function ProjectDetailPage() {
               )}
             </div>
 
-            <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
+            <span className="shrink-0 text-gray-300 text-xl">&rarr;</span>
 
             {/* Step 5 - Content Planner */}
             <div
               onClick={() => setActiveStep('content')}
-              className={`flex-1 min-w-[200px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
+              className={`shrink-0 w-[200px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
                 activeStep === 'content'
                   ? 'border-purple-600 bg-purple-50 shadow-md ring-2 ring-purple-200'
                   : hasContentPlan ? 'border-green-400 bg-green-50 hover:shadow' : 'border-gray-200 bg-white hover:shadow'
@@ -1425,12 +1530,12 @@ export default function ProjectDetailPage() {
                 </button>
               )}
             </div>
-            <span className="text-gray-300 text-xl hidden sm:block">&rarr;</span>
+            <span className="shrink-0 text-gray-300 text-xl">&rarr;</span>
 
             {/* Step 6 - QA Agent */}
             <div
               onClick={() => setActiveStep('qa')}
-              className={`flex-1 min-w-[180px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
+              className={`shrink-0 w-[170px] p-4 rounded-lg border-2 cursor-pointer transition-all ${
                 activeStep === 'qa'
                   ? 'border-purple-600 bg-purple-50 shadow-md ring-2 ring-purple-200'
                   : hasQA ? 'border-green-400 bg-green-50 hover:shadow' : 'border-gray-200 bg-white hover:shadow'

@@ -5,8 +5,8 @@ import { getArtifact, updateJobStatus } from '@/lib/orchestrator';
 import { generateQAResults } from '@/lib/gemini';
 import type { ContentPost } from '@/lib/gemini';
 
-// No Google Search grounding — QA is fast, 120s is generous
-export const maxDuration = 120;
+// Posts are reviewed in batches of 10 — 3 sequential Gemini calls for 30 posts
+export const maxDuration = 300;
 
 /**
  * POST /api/workers/qa
@@ -91,9 +91,26 @@ export async function POST(request: NextRequest) {
         : [],
     };
 
-    // Run QA
-    const result = await generateQAResults(posts, strategyContext, language);
+    // Run QA in batches of 10 to avoid Gemini timeout on 30-post plans
+    const BATCH_SIZE = 10;
+    const batches: ContentPost[][] = [];
+    for (let i = 0; i < posts.length; i += BATCH_SIZE) {
+      batches.push(posts.slice(i, i + BATCH_SIZE));
+    }
 
+    let allResults: import('@/lib/gemini').QAResult[] = [];
+    let totalTokensIn = 0;
+    let totalTokensOut = 0;
+
+    for (let b = 0; b < batches.length; b++) {
+      console.log(`[qa-worker] batch ${b + 1}/${batches.length} — ${batches[b].length} posts`);
+      const batchResult = await generateQAResults(batches[b], strategyContext, language);
+      allResults = allResults.concat(batchResult.results);
+      totalTokensIn += batchResult.tokensIn;
+      totalTokensOut += batchResult.tokensOut;
+    }
+
+    const result = { results: allResults, tokensIn: totalTokensIn, tokensOut: totalTokensOut };
     const durationMs = Date.now() - startTime;
 
     // Store QA results artifact

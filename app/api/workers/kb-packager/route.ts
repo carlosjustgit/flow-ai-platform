@@ -92,10 +92,10 @@ Generate the following knowledge base files:
       model,
       contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
       config: {
-        systemInstruction: `${langDirective}\n\nYou are a knowledge base specialist. Create clear, concise knowledge base markdown files from the research foundation pack. Return a JSON array of file objects.`,
+        systemInstruction: `${langDirective}\n\nYou are Witfy's Knowledge Base Architect. Your output feeds every AI agent downstream — copywriters, strategists, content planners. Shallow output = every downstream agent fails. Write each file with full depth, specific detail, and complete sections. Never summarise what should be a paragraph. Return a JSON array of file objects with rich, substantive content.`,
         responseMimeType: 'application/json',
         responseSchema: KB_PACKAGER_SCHEMA,
-        temperature: 0.2,
+        temperature: 0.4,
       },
     });
 
